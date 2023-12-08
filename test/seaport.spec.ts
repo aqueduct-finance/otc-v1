@@ -1,111 +1,44 @@
-import {
-  loadFixture,
-} from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+import {loadFixture} from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { expect } from "chai";
-import hre from "hardhat";
-import { parseUnits } from 'viem' 
-import crypto from 'crypto';
+import { parseUnits } from 'viem';
 import orderType from "./utils/orderType";
 import { seaportAddress, zeroAddress, zeroHash } from "./utils/constants";
+import generateSalt from "./utils/generateSalt";
+import getBlockTimestamp from "./utils/getBlockTimestamp";
+import seaportFixture from "./fixtures/seaportFixture";
+import accountsFixture from "./fixtures/accountsFixture";
 
 describe("Seaport ERC20 tests", function () {
-  async function getBlockTimestamp(): Promise<bigint> {
-    const pc = await hre.viem.getPublicClient();
-    const block = await pc.getBlock();
-    return block.timestamp;
-  }
-
-  function generateSalt(): bigint {
-    const randomBytes = crypto.randomBytes(32); // 32 bytes = 256 bits
-    return BigInt('0x' + randomBytes.toString('hex'));
-  }
 
   async function fixture() {
-    
-    // config users
-    const [alice, bob, charlie] = await hre.viem.getWalletClients();
-    const publicClient = await hre.viem.getPublicClient();
-
-    // seaport
-    const seaport = await hre.viem.getContractAt(
-      "SeaportInterface",
-      seaportAddress
-    );
-    async function getSeaport(client: typeof alice) {
-      return await hre.viem.getContractAt(
-        "SeaportInterface",
-        seaportAddress,
-        {
-          walletClient: client
-        }
-      );
-    }
-
-    // deploy tokens for testing
-    const _usdc = await hre.viem.deployContract('ERC20', ['USDC', 'USDC']);
-    const _weth = await hre.viem.deployContract('ERC20', ['WETH', 'WETH']);
-    const usdc = await hre.viem.getContractAt(
-      "IERC20",
-      _usdc.address
-    );
-    const weth = await hre.viem.getContractAt(
-      "IERC20",
-      _weth.address
-    );
-    async function getUsdc(client: typeof alice) {
-      return await hre.viem.getContractAt(
-        "IERC20",
-        _usdc.address,
-        {
-          walletClient: client
-        }
-      );
-    }
-    async function getWeth(client: typeof alice) {
-      return await hre.viem.getContractAt(
-        "IERC20",
-        _weth.address,
-        {
-          walletClient: client
-        }
-      );
-    }
-
-    // mint tokens to each account
-    const aliceStartingUsdcBalance = parseUnits("1000", 6);
-    const bobStartingWethBalance = parseUnits("1", 18);
-    await (await getUsdc(alice)).write.mint([
-      alice.account.address,
-      aliceStartingUsdcBalance
-    ]);
-    await (await getWeth(bob)).write.mint([
-      bob.account.address,
-      bobStartingWethBalance
-    ]);
-    await (await getWeth(charlie)).write.mint([
-      charlie.account.address,
-      bobStartingWethBalance
-    ]);
+    const sf = await seaportFixture();
+    const af = await accountsFixture();
 
     return {
-      alice,
-      bob,
-      charlie,
-      publicClient,
-      seaport,
-      usdc,
-      weth,
-      getSeaport,
-      getUsdc,
-      getWeth,
-      aliceStartingUsdcBalance,
-      bobStartingWethBalance
-    };
+      ...sf,
+      ...af
+    }
   }
 
   describe("erc20<->erc20", function () {
+
+    /*
+      Test a completely 'public' trade, anyone can fill it if they have the signed order
+      - in this case, test only a complete fill
+    */
     it("any recipient, complete fill", async function () {
-      const { alice, bob, seaport, usdc, weth, getSeaport, getUsdc, getWeth, aliceStartingUsdcBalance, bobStartingWethBalance } = await loadFixture(fixture);
+      const { 
+        alice, 
+        bob,
+        seaport, 
+        usdc, 
+        weth, 
+        getSeaport, 
+        getUsdc, 
+        getWeth, 
+        aliceStartingUsdcBalance, 
+        startingWethBalance 
+      } = await loadFixture(fixture);
 
       // amounts
       const timestamp = await getBlockTimestamp();
@@ -191,7 +124,7 @@ describe("Seaport ERC20 tests", function () {
       // check for expected starting balances
       expect(await usdc.read.balanceOf([alice.account.address])).to.eq(aliceStartingUsdcBalance);
       expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
-      expect(await weth.read.balanceOf([bob.account.address])).to.eq(bobStartingWethBalance);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(startingWethBalance);
       expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // bob receives the signed order and fulfills it
@@ -211,8 +144,23 @@ describe("Seaport ERC20 tests", function () {
       expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
     });
 
+    /*
+      Restrict the trade to a specific taker, and they fill the order completely
+    */
     it("one recipient, complete fill", async function () {
-      const { alice, bob, charlie, seaport, usdc, weth, getSeaport, getUsdc, getWeth, aliceStartingUsdcBalance, bobStartingWethBalance } = await loadFixture(fixture);
+      const { 
+        alice, 
+        bob, 
+        charlie, 
+        seaport, 
+        usdc, 
+        weth, 
+        getSeaport, 
+        getUsdc, 
+        getWeth, 
+        aliceStartingUsdcBalance, 
+        startingWethBalance 
+      } = await loadFixture(fixture);
 
       // amounts
       const timestamp = await getBlockTimestamp();
@@ -320,7 +268,7 @@ describe("Seaport ERC20 tests", function () {
       // check for expected starting balances
       expect(await usdc.read.balanceOf([alice.account.address])).to.eq(aliceStartingUsdcBalance);
       expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
-      expect(await weth.read.balanceOf([bob.account.address])).to.eq(bobStartingWethBalance);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(startingWethBalance);
       expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // bob receives the signed order and fulfills it
