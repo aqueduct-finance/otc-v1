@@ -23,7 +23,7 @@ describe("Seaport ERC20 tests", function () {
   async function fixture() {
     
     // config users
-    const [alice, bob] = await hre.viem.getWalletClients();
+    const [alice, bob, charlie] = await hre.viem.getWalletClients();
     const publicClient = await hre.viem.getPublicClient();
 
     // seaport
@@ -82,10 +82,15 @@ describe("Seaport ERC20 tests", function () {
       bob.account.address,
       bobStartingWethBalance
     ]);
+    await (await getWeth(charlie)).write.mint([
+      charlie.account.address,
+      bobStartingWethBalance
+    ]);
 
     return {
       alice,
       bob,
+      charlie,
       publicClient,
       seaport,
       usdc,
@@ -194,6 +199,131 @@ describe("Seaport ERC20 tests", function () {
         parameters: orderParameters,
         signature: signature
       };
+      await (await getSeaport(bob)).write.fulfillOrder([
+        order,
+        zeroHash
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(wethTradeamount);
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(usdcTradeAmount);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
+    });
+
+    it("one recipient, complete fill", async function () {
+      const { alice, bob, charlie, seaport, usdc, weth, getSeaport, getUsdc, getWeth, aliceStartingUsdcBalance, bobStartingWethBalance } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob can fill the trade
+      // alice and bob approve seaport contract
+      await (await getUsdc(alice)).write.approve([
+        seaportAddress,
+        usdcTradeAmount
+      ]);
+      await (await getWeth(bob)).write.approve([
+        seaportAddress,
+        wethTradeamount
+      ]);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: bob.account.address,
+
+        // this is what the trader is giving
+        offer: [
+            {
+                itemType: 1, // 1 == erc20
+                token: usdc.address,
+                identifierOrCriteria: 0n, // criteria not used for erc20s
+                startAmount: usdcTradeAmount,
+                endAmount: usdcTradeAmount,
+            }
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+            {
+                itemType: 1,
+                token: weth.address,
+                identifierOrCriteria: 0n,
+                startAmount: wethTradeamount,
+                endAmount: wethTradeamount,
+                recipient: alice.account.address,
+            }
+        ],
+        orderType: 2, // full restricted
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+        zoneHash: zeroHash, // not using zones
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n
+      }
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      }
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: 'OrderComponents',
+        message: orderComponents
+      });
+      const order = {
+        parameters: orderParameters,
+        signature: signature
+      };
+
+      // although alice intends for bob to fill the order,
+      // let's pretend that charlie somehow intercepts alice's signed message
+      // charlie should still not be able to fill the order
+      await (await getWeth(charlie)).write.approve([
+        seaportAddress,
+        wethTradeamount
+      ]);
+      await expect(
+        (await getSeaport(charlie)).write.fulfillOrder([
+          order,
+          zeroHash
+        ])
+      ).to.be.rejectedWith(
+        'VM Exception while processing transaction: reverted with an unrecognized custom error'
+      );
+      
+      // check that bob can swap
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(aliceStartingUsdcBalance);
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(bobStartingWethBalance);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // bob receives the signed order and fulfills it
       await (await getSeaport(bob)).write.fulfillOrder([
         order,
         zeroHash
