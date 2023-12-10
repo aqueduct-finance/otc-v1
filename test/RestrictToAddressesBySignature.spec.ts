@@ -1,6 +1,6 @@
 import {loadFixture} from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { expect } from "chai";
-import { parseUnits } from 'viem';
+import { parseUnits, keccak256, encodeAbiParameters } from 'viem';
 import hre from "hardhat";
 import orderType from "./utils/orderType";
 import { seaportAddress, zeroHash } from "./utils/constants";
@@ -9,28 +9,18 @@ import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
 import accountsFixture from "./fixtures/accountsFixture";
 
-describe("RestrictToAddresses Zone tests", function () {
+describe("RestrictToAddressesBySignature Zone tests", function () {
 
     async function fixture() {
         const sf = await seaportFixture();
         const af = await accountsFixture();
 
-        const restrictToAddressesZone = await hre.viem.deployContract('RestrictToAddresses', [sf.seaport.address]);
-        async function getRestrictToAddressesZone(client: typeof af.alice) {
-            return await hre.viem.getContractAt(
-                "IRestrictToAddresses",
-                restrictToAddressesZone.address,
-                {
-                walletClient: client
-                }
-            );
-        }
+        const restrictToAddressesZone = await hre.viem.deployContract('RestrictToAddressesBySignature');
 
         return {
             ...sf,
             ...af,
-            restrictToAddressesZone,
-            getRestrictToAddressesZone
+            restrictToAddressesZone
         }
     }
 
@@ -55,8 +45,7 @@ describe("RestrictToAddresses Zone tests", function () {
                 getWeth, 
                 aliceStartingUsdcBalance, 
                 startingWethBalance, 
-                restrictToAddressesZone, 
-                getRestrictToAddressesZone 
+                restrictToAddressesZone 
             } = await loadFixture(fixture);
 
             // amounts
@@ -78,6 +67,13 @@ describe("RestrictToAddresses Zone tests", function () {
                 seaportAddress,
                 wethTradeamount
             ]);
+
+            // alice computes the merkle root
+            // leaf nodes are just bob and charlie, so the root is the hash of those two
+            const hashBob = keccak256(bob.account.address);
+            const hashCharlie = keccak256(charlie.account.address);
+            const concatenatedAddresses = hashBob < hashCharlie ? hashBob + hashCharlie.slice(2) : hashCharlie + hashBob.slice(2);
+            const merkleRoot = keccak256(concatenatedAddresses as `0x${string}`);
 
             // construct order
             const salt = generateSalt();
@@ -111,8 +107,8 @@ describe("RestrictToAddresses Zone tests", function () {
                 startTime: timestamp,
                 endTime: timestamp + 86400n, // 24 hours from now
 
-                // using RestrictToAddresses, the user will interact with the zone directly, rather than through this signature 
-                zoneHash: zeroHash, 
+                // this will be used for verification by the zone contract
+                zoneHash: merkleRoot, 
 
                 salt: salt,
                 conduitKey: zeroHash, // not using a conduit
@@ -140,12 +136,6 @@ describe("RestrictToAddresses Zone tests", function () {
                 counter: counter,
             }
 
-            // restrict to addresses
-            await (await getRestrictToAddressesZone(alice)).write.setAllowedAddresses([
-                orderComponents,
-                [bob.account.address, charlie.account.address]
-            ]);
-
             // alice signs the order
             const signature = await alice.signTypedData({
                 domain: domainData,
@@ -153,22 +143,37 @@ describe("RestrictToAddresses Zone tests", function () {
                 primaryType: 'OrderComponents',
                 message: orderComponents
             });
-            const order = {
+
+            // bob finds the hashes necessary to compute the merkle root from the hash of his address
+            // in this case, just the hash of charlie's address
+            // NOTE: for sake of privacy, alice can provide the merkle tree to bob, without necessarily revealing the underlying addresses
+            const necessaryHashes = encodeAbiParameters(
+                [{ type: 'bytes32[]', name: 'extraData' }],
+                [[hashCharlie]]
+            );
+
+            // construct advanced order
+            const advancedOrder = {
                 parameters: orderParameters,
-                signature: signature
-            };
+                numerator: wethTradeamount,
+                denominator: wethTradeamount,
+                signature: signature,
+                extraData: necessaryHashes
+            }
 
             // although alice intends for bob or charlie to fill the order,
-            // let's pretend that dan somehow intercepts alice's signed message
+            // let's pretend that dan somehow intercepts alice's signed message and the merkle tree
             // dan should still not be able to fill the order
             await (await getWeth(dan)).write.approve([
                 seaportAddress,
                 wethTradeamount
             ]);
             await expect(
-                (await getSeaport(dan)).write.fulfillOrder([
-                    order,
-                    zeroHash
+                (await getSeaport(dan)).write.fulfillAdvancedOrder([
+                    advancedOrder,
+                    [],
+                    zeroHash,
+                    dan.account.address
                 ])
             ).to.be.rejectedWith(
                 'ORDER_RESTRICTED'
@@ -181,10 +186,11 @@ describe("RestrictToAddresses Zone tests", function () {
             expect(await weth.read.balanceOf([bob.account.address])).to.eq(startingWethBalance);
             expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
-            // bob receives the signed order and fulfills it
-            await (await getSeaport(bob)).write.fulfillOrder([
-                order,
-                zeroHash
+            await (await getSeaport(bob)).write.fulfillAdvancedOrder([
+                advancedOrder,
+                [],
+                zeroHash,
+                bob.account.address
             ]);
 
             // check that the swap was correct
@@ -194,10 +200,23 @@ describe("RestrictToAddresses Zone tests", function () {
             expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
 
             // charlie tries to fill the order
+            const necessaryHashes2 = encodeAbiParameters(
+                [{ type: 'bytes32[]', name: 'extraData' }],
+                [[hashBob]]
+            );
+            const advancedOrder2 = {
+                parameters: orderParameters,
+                numerator: wethTradeamount,
+                denominator: wethTradeamount,
+                signature: signature,
+                extraData: necessaryHashes2
+            }
             await expect(
-                (await getSeaport(charlie)).write.fulfillOrder([
-                    order,
-                    zeroHash
+                (await getSeaport(charlie)).write.fulfillAdvancedOrder([
+                    advancedOrder2,
+                    [],
+                    zeroHash,
+                    charlie.account.address
                 ])
             ).to.be.rejectedWith(
                 'VM Exception while processing transaction: reverted with an unrecognized custom error'
@@ -223,8 +242,7 @@ describe("RestrictToAddresses Zone tests", function () {
                 getWeth, 
                 aliceStartingUsdcBalance, 
                 startingWethBalance, 
-                restrictToAddressesZone, 
-                getRestrictToAddressesZone 
+                restrictToAddressesZone
             } = await loadFixture(fixture);
 
             // amounts
@@ -250,6 +268,22 @@ describe("RestrictToAddresses Zone tests", function () {
                 seaportAddress,
                 wethTradeamount
             ]);
+
+            /*
+                alice computes the merkle root
+                leaf nodes are bob, charlie, and dan
+
+                     hBCD
+                    /    \
+                  hBC    hD
+                 /   \
+                hB   hC
+            */
+            const hB = keccak256(bob.account.address);
+            const hC = keccak256(charlie.account.address);
+            const hD = keccak256(dan.account.address);
+            const hBC = keccak256((hB < hC ? hB + hC.slice(2) : hC + hB.slice(2)) as `0x${string}`);
+            const merkleRoot = keccak256((hBC < hD ? hBC + hD.slice(2) : hD + hBC.slice(2)) as `0x${string}`);
 
             // construct order
             const salt = generateSalt();
@@ -283,8 +317,8 @@ describe("RestrictToAddresses Zone tests", function () {
                 startTime: timestamp,
                 endTime: timestamp + 86400n, // 24 hours from now
 
-                // using RestrictToAddresses, the user will interact with the zone directly, rather than through this signature 
-                zoneHash: zeroHash, 
+                // this will be used for verification by the zone contract
+                zoneHash: merkleRoot,
 
                 salt: salt,
                 conduitKey: zeroHash, // not using a conduit
@@ -312,12 +346,6 @@ describe("RestrictToAddresses Zone tests", function () {
                 counter: counter,
             }
 
-            // restrict to addresses
-            await (await getRestrictToAddressesZone(alice)).write.setAllowedAddresses([
-                orderComponents,
-                [bob.account.address, charlie.account.address, dan.account.address]
-            ]);
-
             // alice signs the order
             const signature = await alice.signTypedData({
                 domain: domainData,
@@ -325,10 +353,29 @@ describe("RestrictToAddresses Zone tests", function () {
                 primaryType: 'OrderComponents',
                 message: orderComponents
             });
-            const order = {
+
+            /*
+                bob finds the hashes necessary to compute the merkle root from the hash of his address
+
+                we can see that hC and hD are needed:
+
+                     root
+                    /    \
+                  ___    hD
+                 /   \
+                __   hC
+            */
+            const necessaryHashes = encodeAbiParameters(
+                [{ type: 'bytes32[]', name: 'extraData' }],
+                [[hC, hD]]
+            );
+            const advancedOrder = {
                 parameters: orderParameters,
-                signature: signature
-            };
+                numerator: wethTradeamount / 2n,
+                denominator: wethTradeamount,
+                signature: signature,
+                extraData: necessaryHashes
+            }
 
             // although alice intends for bob, charlie, and dan to fill the order,
             // let's pretend that erin somehow intercepts alice's signed message
@@ -338,9 +385,11 @@ describe("RestrictToAddresses Zone tests", function () {
                 wethTradeamount
             ]);
             await expect(
-                (await getSeaport(erin)).write.fulfillOrder([
-                    order,
-                    zeroHash
+                (await getSeaport(erin)).write.fulfillAdvancedOrder([
+                    advancedOrder,
+                    [],
+                    zeroHash,
+                    erin.account.address
                 ])
             ).to.be.rejectedWith(
                 'ORDER_RESTRICTED'
@@ -355,13 +404,6 @@ describe("RestrictToAddresses Zone tests", function () {
             expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
             // bob receives the signed order and fulfills half of it
-            const advancedOrder = {
-                parameters: orderParameters,
-                numerator: wethTradeamount / 2n,
-                denominator: wethTradeamount,
-                signature: signature,
-                extraData: zeroHash
-            }
             await (await getSeaport(bob)).write.fulfillAdvancedOrder([
                 advancedOrder,
                 [],
@@ -379,9 +421,32 @@ describe("RestrictToAddresses Zone tests", function () {
             expect(await usdc.read.balanceOf([charlie.account.address])).to.eq(0n);
             expect(await weth.read.balanceOf([charlie.account.address])).to.eq(startingWethBalance);
 
+            /*
+                charlie finds the hashes necessary to compute the merkle root from the hash of his address
+
+                we can see that hB and hD are needed:
+
+                     root
+                    /    \
+                  ___    hD
+                 /   \
+                hB   __
+            */
+            const necessaryHashes2 = encodeAbiParameters(
+                [{ type: 'bytes32[]', name: 'extraData' }],
+                [[hB, hD]]
+            );
+            const advancedOrder2 = {
+                parameters: orderParameters,
+                numerator: wethTradeamount / 2n,
+                denominator: wethTradeamount,
+                signature: signature,
+                extraData: necessaryHashes2
+            }
+
             // charlie fills the rest of the order
             await (await getSeaport(charlie)).write.fulfillAdvancedOrder([
-                advancedOrder,
+                advancedOrder2,
                 [],
                 zeroHash,
                 charlie.account.address
@@ -393,11 +458,36 @@ describe("RestrictToAddresses Zone tests", function () {
             expect(await usdc.read.balanceOf([charlie.account.address])).to.eq(usdcTradeAmount / 2n);
             expect(await weth.read.balanceOf([charlie.account.address])).to.eq(wethTradeamount / 2n);
 
+            /*
+                dan finds the hashes necessary to compute the merkle root from the hash of his address
+
+                we can see that just hBC is needed:
+
+                     root
+                    /    \
+                  hBC    __
+                 /   \
+                __   __
+            */
+            const necessaryHashes3 = encodeAbiParameters(
+                [{ type: 'bytes32[]', name: 'extraData' }],
+                [[hBC]]
+            );
+            const advancedOrder3 = {
+                parameters: orderParameters,
+                numerator: wethTradeamount,
+                denominator: wethTradeamount,
+                signature: signature,
+                extraData: necessaryHashes3
+            }
+
             // now that the order is completely filled, dan's fulfillment should fail
             await expect(
-                (await getSeaport(dan)).write.fulfillOrder([
-                    order,
-                    zeroHash
+                (await getSeaport(dan)).write.fulfillAdvancedOrder([
+                    advancedOrder3,
+                    [],
+                    zeroHash,
+                    dan.account.address
                 ])
             ).to.be.rejectedWith(
                 'VM Exception while processing transaction: reverted with an unrecognized custom error'

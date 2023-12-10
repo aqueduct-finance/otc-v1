@@ -13,9 +13,13 @@ import {OrderComponents} from "../lib/seaport-types/src/lib/ConsiderationStructs
     pros:
     - when constructing an order, the user only has to supply this zone address
     - consequently, the user can share the signed order with anyone, and add/remove restrictions after the fact (and without invalidating previous orders)
+    - supports restriction to a set of 'unlimited' addresses
 
     cons:
     - gas cost, requires onchain interactions
+    - gas cost scales with number of restricted addresses
+    // TODO: allow reusing restriction sets across different orders
+    // TODO: improve privacy by storing address hashes
 */
 contract RestrictToAddresses is IRestrictToAddresses {
 
