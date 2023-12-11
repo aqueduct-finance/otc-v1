@@ -230,7 +230,7 @@ describe("RestrictToAddresses Zone tests", function () {
             // amounts
             const timestamp = await getBlockTimestamp();
             const usdcTradeAmount = parseUnits("1000", 6);
-            const wethTradeamount = parseUnits("1", 18);
+            const wethTradeAmount = parseUnits("1", 18);
 
             // alice will designate that bob, charlie, and dan can fill the trade
             // alice, bob, charlie, and dan approve seaport contract
@@ -240,15 +240,15 @@ describe("RestrictToAddresses Zone tests", function () {
             ]);
             await (await getWeth(bob)).write.approve([
                 seaportAddress,
-                wethTradeamount
+                wethTradeAmount
             ]);
             await (await getWeth(charlie)).write.approve([
                 seaportAddress,
-                wethTradeamount
+                wethTradeAmount
             ]);
             await (await getWeth(dan)).write.approve([
                 seaportAddress,
-                wethTradeamount
+                wethTradeAmount
             ]);
 
             // construct order
@@ -274,8 +274,8 @@ describe("RestrictToAddresses Zone tests", function () {
                         itemType: 1,
                         token: weth.address,
                         identifierOrCriteria: 0n,
-                        startAmount: wethTradeamount,
-                        endAmount: wethTradeamount,
+                        startAmount: wethTradeAmount,
+                        endAmount: wethTradeAmount,
                         recipient: alice.account.address,
                     }
                 ],
@@ -335,7 +335,7 @@ describe("RestrictToAddresses Zone tests", function () {
             // erin should still not be able to fill the order
             await (await getWeth(erin)).write.approve([
                 seaportAddress,
-                wethTradeamount
+                wethTradeAmount
             ]);
             await expect(
                 (await getSeaport(erin)).write.fulfillOrder([
@@ -357,8 +357,8 @@ describe("RestrictToAddresses Zone tests", function () {
             // bob receives the signed order and fulfills half of it
             const advancedOrder = {
                 parameters: orderParameters,
-                numerator: wethTradeamount / 2n,
-                denominator: wethTradeamount,
+                numerator: wethTradeAmount / 2n,
+                denominator: wethTradeAmount,
                 signature: signature,
                 extraData: zeroHash
             }
@@ -370,10 +370,10 @@ describe("RestrictToAddresses Zone tests", function () {
             ]);
 
             // check that the swap was correct
-            expect(await weth.read.balanceOf([alice.account.address])).to.eq(wethTradeamount / 2n);
+            expect(await weth.read.balanceOf([alice.account.address])).to.eq(wethTradeAmount / 2n);
             expect(await usdc.read.balanceOf([alice.account.address])).to.eq(usdcTradeAmount / 2n);
             expect(await usdc.read.balanceOf([bob.account.address])).to.eq(usdcTradeAmount / 2n);
-            expect(await weth.read.balanceOf([bob.account.address])).to.eq(wethTradeamount / 2n);
+            expect(await weth.read.balanceOf([bob.account.address])).to.eq(wethTradeAmount / 2n);
 
             // check charlie's expected starting balances
             expect(await usdc.read.balanceOf([charlie.account.address])).to.eq(0n);
@@ -388,10 +388,10 @@ describe("RestrictToAddresses Zone tests", function () {
             ]);
 
             // check that the swap was correct
-            expect(await weth.read.balanceOf([alice.account.address])).to.eq(wethTradeamount);
+            expect(await weth.read.balanceOf([alice.account.address])).to.eq(wethTradeAmount);
             expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
             expect(await usdc.read.balanceOf([charlie.account.address])).to.eq(usdcTradeAmount / 2n);
-            expect(await weth.read.balanceOf([charlie.account.address])).to.eq(wethTradeamount / 2n);
+            expect(await weth.read.balanceOf([charlie.account.address])).to.eq(wethTradeAmount / 2n);
 
             // now that the order is completely filled, dan's fulfillment should fail
             await expect(
