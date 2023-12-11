@@ -40,7 +40,7 @@ contract RestrictToAddressesBySignature is IRestrictToAddressesBySignature {
      */
     function validateOrder(
         ZoneParameters calldata zoneParameters
-    ) external view returns (
+    ) external pure returns (
         bytes4 validOrderMagicValue
     ) {
         bytes32[] memory nodes = abi.decode(zoneParameters.extraData, (bytes32[]));
