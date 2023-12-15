@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ZoneInterface} from "../lib/seaport-types/src/interfaces/ZoneInterface.sol";
+import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
 import {IRestrictToAddressesBySignature} from "./interfaces/IRestrictToAddressesBySignature.sol";
-import {ZoneParameters, Schema} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
-import {SeaportInterface} from "../lib/seaport-types/src/interfaces/SeaportInterface.sol";
-import {OrderComponents} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
+import {ZoneParameters, Schema} from "seaport-types/src/lib/ConsiderationStructs.sol";
+import {SeaportInterface} from "seaport-types/src/interfaces/SeaportInterface.sol";
+import {OrderComponents} from "seaport-types/src/lib/ConsiderationStructs.sol";
 
 /**
  * @notice RestrictToAddressesBySignature allows accounts to restrict their order to a given set of addresses, via their signed order

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {ZoneInterface} from "../lib/seaport-types/src/interfaces/ZoneInterface.sol";
+import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
 import {IRequireServerSignature} from "./interfaces/IRequireServerSignature.sol";
-import {ZoneParameters, Schema} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
-import {SeaportInterface} from "../lib/seaport-types/src/interfaces/SeaportInterface.sol";
-import {OrderComponents} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
+import {ZoneParameters, Schema} from "seaport-types/src/lib/ConsiderationStructs.sol";
+import {SeaportInterface} from "seaport-types/src/interfaces/SeaportInterface.sol";
+import {OrderComponents} from "seaport-types/src/lib/ConsiderationStructs.sol";
 
 /**
  * @notice RequireServerSignature allows a user to rely on a trusted intermediary to validate any arbitrary data offchain
