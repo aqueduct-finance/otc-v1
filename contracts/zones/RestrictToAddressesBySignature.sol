@@ -65,13 +65,11 @@ contract RestrictToAddressesBySignature is IRestrictToAddressesBySignature {
     ) internal pure returns (
         bytes32 merkleRoot
     ) {
-        uint256 len = nodes.length; // cache length
-        if (len < 1) { revert INSUFFICIENT_MERKLE_PROOF(); }
-
         // set first hash
         merkleRoot = firstNode;
         
         // compute root node with sequential hashes
+        uint256 len = nodes.length; // cache length
         for (uint i = 0; i < len;) {
             bytes32 nextNode = nodes[i];
             if (merkleRoot < nextNode) {
