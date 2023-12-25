@@ -283,5 +283,297 @@ describe("Seaport ERC20 tests", function () {
       expect(await usdc.read.balanceOf([bob.account.address])).to.eq(usdcTradeAmount);
       expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
     });
+
+    /*
+      Test paying fees to a third party (e.g. aqueduct otc)
+      - fulfiller fees can easily be paid by adding a second consideration item
+    */
+    it("considerationItem fees", async function () {
+      const { 
+        alice, 
+        bob,
+        frank,
+        seaport, 
+        usdc, 
+        weth, 
+        getSeaport, 
+        getUsdc, 
+        getWeth, 
+        aliceStartingUsdcBalance, 
+        startingWethBalance 
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethFeeAmount = parseUnits("1", 17);
+      const wethTotalTradeamount = parseUnits("1", 18);
+      const wethTradeAmount = wethTotalTradeamount - wethFeeAmount;
+
+      // alice and bob approve seaport contract
+      await (await getUsdc(alice)).write.approve([
+        seaportAddress,
+        usdcTradeAmount
+      ]);
+      await (await getWeth(bob)).write.approve([
+        seaportAddress,
+        wethTotalTradeamount
+      ]);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: zeroAddress,
+
+        // this is what the trader is giving
+        offer: [
+            {
+                itemType: 1, // 1 == erc20
+                token: usdc.address,
+                identifierOrCriteria: 0n, // criteria not used for erc20s
+                startAmount: usdcTradeAmount,
+                endAmount: usdcTradeAmount,
+            }
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+            {
+                itemType: 1,
+                token: weth.address,
+                identifierOrCriteria: 0n,
+                startAmount: wethTradeAmount,
+                endAmount: wethTradeAmount,
+                recipient: alice.account.address,
+            },
+
+            // add the fee as a consideration:
+            {
+              itemType: 1,
+              token: weth.address,
+              identifierOrCriteria: 0n,
+              startAmount: wethFeeAmount,
+              endAmount: wethFeeAmount,
+              recipient: frank.account.address, // frank will be the third party
+          }
+        ],
+        orderType: 0, // full open
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+        zoneHash: zeroHash, // not using zones
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 2n
+      }
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      }
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: 'OrderComponents',
+        message: orderComponents
+      });
+      
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(aliceStartingUsdcBalance);
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(startingWethBalance);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // frank (3rd party) shouldn't have any funds
+      expect(await usdc.read.balanceOf([frank.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([frank.account.address])).to.eq(0n);
+
+      // bob receives the signed order and fulfills it
+      const order = {
+        parameters: orderParameters,
+        signature: signature
+      };
+      await (await getSeaport(bob)).write.fulfillOrder([
+        order,
+        zeroHash
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(wethTradeAmount);
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(usdcTradeAmount);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // check that frank got the fee
+      expect(await weth.read.balanceOf([frank.account.address])).to.eq(wethFeeAmount);
+    });
+
+    /*
+      Test paying fees to a third party (e.g. aqueduct otc)
+      - seaport only supports a 'recipient' field for consideration items
+      - we can work around this by adding the fee in the consideration items
+      - with this, the token gets sent to the fulfiller, but then immediately to the third party recipient
+      - the only caveat is the fulfiller will need to approve seaport from the fee token
+    */
+    it("offerItem fees", async function () {
+      const { 
+        alice, 
+        bob,
+        frank,
+        seaport, 
+        usdc, 
+        weth, 
+        getSeaport, 
+        getUsdc, 
+        getWeth, 
+        aliceStartingUsdcBalance, 
+        startingWethBalance 
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const usdcFeeAmount = parseUnits("2", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice and bob approve seaport contract
+      await (await getUsdc(alice)).write.approve([
+        seaportAddress,
+        usdcTradeAmount
+      ]);
+      await (await getWeth(bob)).write.approve([
+        seaportAddress,
+        wethTradeamount
+      ]);
+
+      // bob approves seaport from the fee token
+      await (await getUsdc(bob)).write.approve([
+        seaportAddress,
+        wethTradeamount
+      ]);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: zeroAddress,
+
+        // this is what the trader is giving
+        offer: [
+            {
+                itemType: 1, // 1 == erc20
+                token: usdc.address,
+                identifierOrCriteria: 0n, // criteria not used for erc20s
+                startAmount: usdcTradeAmount,
+                endAmount: usdcTradeAmount,
+            }
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+            {
+                itemType: 1,
+                token: weth.address,
+                identifierOrCriteria: 0n,
+                startAmount: wethTradeamount,
+                endAmount: wethTradeamount,
+                recipient: alice.account.address,
+            },
+
+            // add the fee as a consideration:
+            {
+              itemType: 1,
+              token: usdc.address,
+              identifierOrCriteria: 0n,
+              startAmount: usdcFeeAmount,
+              endAmount: usdcFeeAmount,
+              recipient: frank.account.address, // frank will be the third party
+          }
+        ],
+        orderType: 0, // full open
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+        zoneHash: zeroHash, // not using zones
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 2n
+      }
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      }
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: 'OrderComponents',
+        message: orderComponents
+      });
+      
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(aliceStartingUsdcBalance);
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(startingWethBalance);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // frank (3rd party) shouldn't have any funds
+      expect(await usdc.read.balanceOf([frank.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([frank.account.address])).to.eq(0n);
+
+      // bob receives the signed order and fulfills it
+      const order = {
+        parameters: orderParameters,
+        signature: signature
+      };
+      await (await getSeaport(bob)).write.fulfillOrder([
+        order,
+        zeroHash
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(wethTradeamount);
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(usdcTradeAmount - usdcFeeAmount);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // check that frank got the fee
+      expect(await usdc.read.balanceOf([frank.account.address])).to.eq(usdcFeeAmount);
+    });
   });
 });

@@ -4,7 +4,7 @@ import { parseUnits } from 'viem';
 async function accountsFixture() {
     
     // get users
-    const [alice, bob, charlie, dan, erin] = await hre.viem.getWalletClients();
+    const [alice, bob, charlie, dan, erin, frank] = await hre.viem.getWalletClients();
 
     // deploy tokens for testing
     const _usdc = await hre.viem.deployContract('ERC20', ['USDC', 'USDC']);
@@ -66,6 +66,7 @@ async function accountsFixture() {
       charlie,
       dan,
       erin,
+      frank,
       usdc,
       weth,
       getUsdc,
