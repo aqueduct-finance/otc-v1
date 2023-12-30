@@ -140,11 +140,22 @@ describe("RestrictToAddresses Zone tests", function () {
                 counter: counter,
             }
 
+            // check that the order is not yet restricted
+            const orderHash = await seaport.read.getOrderHash([orderComponents]);
+            expect(
+                await restrictToAddressesZone.read.isOrderRestricted([orderHash])
+            ).to.be.false;
+
             // restrict to addresses
             await (await getRestrictToAddressesZone(alice)).write.setAllowedAddresses([
                 orderComponents,
                 [bob.account.address, charlie.account.address]
             ]);
+
+            // check that the order is now restricted
+            expect(
+                await restrictToAddressesZone.read.isOrderRestricted([orderHash])
+            ).to.be.true;
 
             // alice signs the order
             const signature = await alice.signTypedData({
@@ -312,11 +323,22 @@ describe("RestrictToAddresses Zone tests", function () {
                 counter: counter,
             }
 
+            // check that the order is not yet restricted
+            const orderHash = await seaport.read.getOrderHash([orderComponents]);
+            expect(
+                await restrictToAddressesZone.read.isOrderRestricted([orderHash])
+            ).to.be.false;
+
             // restrict to addresses
             await (await getRestrictToAddressesZone(alice)).write.setAllowedAddresses([
                 orderComponents,
                 [bob.account.address, charlie.account.address, dan.account.address]
             ]);
+
+            // check that the order is now restricted
+            expect(
+                await restrictToAddressesZone.read.isOrderRestricted([orderHash])
+            ).to.be.true;
 
             // alice signs the order
             const signature = await alice.signTypedData({

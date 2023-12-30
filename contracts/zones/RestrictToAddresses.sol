@@ -28,6 +28,8 @@ contract RestrictToAddresses is IRestrictToAddresses {
     // orderHash => (userAddress => isAllowed)
     mapping(bytes32 => mapping(address => bool)) public allowedAddresses;
 
+    mapping(bytes32 => bool) public isOrderRestricted;
+
     constructor(
         address _seaport
     ) {
@@ -40,8 +42,11 @@ contract RestrictToAddresses is IRestrictToAddresses {
     ) external {
         if (msg.sender != orderComponents.offerer) { revert MSG_SENDER_NOT_OFFERER(); }
 
-        // get order hash
+        // get order hash (needs to be computed onchain for security)
         bytes32 orderHash = SeaportInterface(seaport).getOrderHash(orderComponents);
+
+        // set isOrderRestricted
+        isOrderRestricted[orderHash] = true;
 
         // set allowed addresses
         for (uint i = 0; i < addresses.length; i++) {
