@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { parseUnits, encodeAbiParameters } from 'viem';
 import hre from "hardhat";
 import orderType from "./utils/orderType";
-import { seaportAddress, zeroAddress, zeroHash } from "./utils/constants";
+import { seaportAddress, zeroHash } from "./utils/constants";
 import generateSalt from "./utils/generateSalt";
 import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
