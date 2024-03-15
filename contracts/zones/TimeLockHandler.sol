@@ -28,6 +28,10 @@ contract TimeLockHandler {
     function validateOrder(
         ZoneParameters calldata zoneParameters
     ) external returns (bytes4 validOrderMagicValue) {
+        // decode params
+        uint256 unlockDate = uint256(zoneParameters.zoneHash);
+
+        // data
         SpentItem memory offer = zoneParameters.offer[0];
         ReceivedItem memory consideration = zoneParameters.consideration[0];
         address offerer = zoneParameters.offerer;
@@ -59,15 +63,15 @@ contract TimeLockHandler {
         // create time locks for each
         timeLock.createNFT(
             offerer,
-            offer.amount,
-            offer.token,
-            block.timestamp + 1000 // TODO: pass in as param
+            consideration.amount,
+            consideration.token,
+            unlockDate
         );
         timeLock.createNFT(
             fulfiller,
-            consideration.amount,
-            consideration.token,
-            block.timestamp + 1000
+            offer.amount,
+            offer.token,
+            unlockDate
         );
 
         validOrderMagicValue = ZoneInterface.validateOrder.selector;

@@ -1,6 +1,9 @@
-import {loadFixture} from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+import {
+  loadFixture,
+  time,
+} from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { expect } from "chai";
-import { parseUnits } from 'viem';
+import { parseUnits, encodeAbiParameters } from "viem";
 import hre from "hardhat";
 import orderType from "./utils/orderType";
 import { seaportAddress, zeroHash } from "./utils/constants";
@@ -11,39 +14,39 @@ import accountsFixture from "./fixtures/accountsFixture";
 import timeLockFixture from "./fixtures/timeLockFixture";
 
 describe("TimeLockHandler tests", function () {
-
   async function fixture() {
     const sf = await seaportFixture();
     const af = await accountsFixture();
     const tL = await timeLockFixture();
 
-    const timeLockHandler = await hre.viem.deployContract('TimeLockHandler', [tL.timeLock.address]);
+    const timeLockHandler = await hre.viem.deployContract("TimeLockHandler", [
+      tL.timeLock.address,
+    ]);
 
     return {
       ...sf,
       ...af,
       ...tL,
       timeLockHandler,
-    }
+    };
   }
 
   describe("erc20<->erc20", function () {
-
     /*
-      ...
+      Test a swap with the TimeLockHandler
+      This will swap the tokens, and atomically deposit them into time lock nfts
     */
     it("TimeLockHandler swaps correctly and creates token locks", async function () {
-      const { 
-        alice, 
-        bob, 
-        charlie, 
-        seaport, 
-        usdc, 
-        weth, 
-        getSeaport, 
-        getUsdc, 
-        getWeth, 
-        aliceStartingUsdcBalance, 
+      const {
+        alice,
+        bob,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
         startingWethBalance,
         timeLockHandler,
         timeLock,
@@ -56,25 +59,21 @@ describe("TimeLockHandler tests", function () {
 
       // alice will designate that only bob can fill the trade
       // alice and bob approve seaport contract
-      await (await getUsdc(alice)).write.approve([
-        seaportAddress,
-        usdcTradeAmount
-      ]);
-      await (await getWeth(bob)).write.approve([
-        seaportAddress,
-        wethTradeamount
-      ]);
+      await (
+        await getUsdc(alice)
+      ).write.approve([seaportAddress, usdcTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
 
       // alice and bob also have to approve the time lock handler for the opposite token
       // bc time locks are created atomically post-trade
-      await (await getWeth(alice)).write.approve([
-        timeLockHandler.address,
-        wethTradeamount
-      ]);
-      await (await getUsdc(bob)).write.approve([
-        timeLockHandler.address,
-        usdcTradeAmount
-      ]);
+      await (
+        await getWeth(alice)
+      ).write.approve([timeLockHandler.address, wethTradeamount]);
+      await (
+        await getUsdc(bob)
+      ).write.approve([timeLockHandler.address, usdcTradeAmount]);
 
       // construct order
       const salt = generateSalt();
@@ -84,37 +83,40 @@ describe("TimeLockHandler tests", function () {
 
         // this is what the trader is giving
         offer: [
-            {
-                itemType: 1, // 1 == erc20
-                token: usdc.address,
-                identifierOrCriteria: 0n, // criteria not used for erc20s
-                startAmount: usdcTradeAmount,
-                endAmount: usdcTradeAmount,
-            }
+          {
+            itemType: 1, // 1 == erc20
+            token: usdc.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
         ],
 
         // what the trader expects to receive
         consideration: [
-            {
-                itemType: 1,
-                token: weth.address,
-                identifierOrCriteria: 0n,
-                startAmount: wethTradeamount,
-                endAmount: wethTradeamount,
-                recipient: alice.account.address,
-            }
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
         ],
         orderType: 2, // full restricted
         startTime: timestamp,
         endTime: timestamp + 86400n, // 24 hours from now
-        zoneHash: zeroHash, // not using zones
+        zoneHash: encodeAbiParameters(
+          [{ name: "unlockDate", type: "uint256" }],
+          [timestamp + 86400n]
+        ), // encode unlock date
         salt: salt,
         conduitKey: zeroHash, // not using a conduit
       };
       const orderParameters = {
         ...baseOrderParameters,
-        totalOriginalConsiderationItems: 1n
-      }
+        totalOriginalConsiderationItems: 1n,
+      };
 
       // get contract info
       const info = await seaport.read.information();
@@ -132,32 +134,33 @@ describe("TimeLockHandler tests", function () {
       const orderComponents = {
         ...baseOrderParameters,
         counter: counter,
-      }
+      };
 
       // alice signs the order
       const signature = await alice.signTypedData({
         domain: domainData,
         types: orderType,
-        primaryType: 'OrderComponents',
-        message: orderComponents
+        primaryType: "OrderComponents",
+        message: orderComponents,
       });
       const order = {
         parameters: orderParameters,
-        signature: signature
+        signature: signature,
       };
-      
+
       // check that bob can swap
       // check for expected starting balances
-      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(aliceStartingUsdcBalance);
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
       expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
-      expect(await weth.read.balanceOf([bob.account.address])).to.eq(startingWethBalance);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
       expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // bob receives the signed order and fulfills it
-      await (await getSeaport(bob)).write.fulfillOrder([
-        order,
-        zeroHash
-      ]);
+      await (await getSeaport(bob)).write.fulfillOrder([order, zeroHash]);
 
       // neither account should have any tokens
       expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
@@ -166,8 +169,348 @@ describe("TimeLockHandler tests", function () {
       expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // check time lock contract balances for each
-      expect(await usdc.read.balanceOf([timeLock.address])).to.eq(usdcTradeAmount);
-      expect(await weth.read.balanceOf([timeLock.address])).to.eq(wethTradeamount);
+      expect(await usdc.read.balanceOf([timeLock.address])).to.eq(
+        usdcTradeAmount
+      );
+      expect(await weth.read.balanceOf([timeLock.address])).to.eq(
+        wethTradeamount
+      );
+    });
+
+    /*
+      Same as the first test, but now test waiting until they unlock and retrieve funds
+    */
+    it("TimeLockHandler swaps correctly and creates token locks, and unlock works after unlockDate", async function () {
+      const {
+        alice,
+        bob,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
+        startingWethBalance,
+        timeLockHandler,
+        timeLock,
+        getTimeLock,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob can fill the trade
+      // alice and bob approve seaport contract
+      await (
+        await getUsdc(alice)
+      ).write.approve([seaportAddress, usdcTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // alice and bob also have to approve the time lock handler for the opposite token
+      // bc time locks are created atomically post-trade
+      await (
+        await getWeth(alice)
+      ).write.approve([timeLockHandler.address, wethTradeamount]);
+      await (
+        await getUsdc(bob)
+      ).write.approve([timeLockHandler.address, usdcTradeAmount]);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: timeLockHandler.address, // don't forget this
+
+        // this is what the trader is giving
+        offer: [
+          {
+            itemType: 1, // 1 == erc20
+            token: usdc.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
+        ],
+        orderType: 2, // full restricted
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+        zoneHash: encodeAbiParameters(
+          [{ name: "unlockDate", type: "uint256" }],
+          [timestamp + 86400n]
+        ), // encode unlock date
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+      const order = {
+        parameters: orderParameters,
+        signature: signature,
+      };
+
+      // check that bob can swap
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // bob receives the signed order and fulfills it
+      await (await getSeaport(bob)).write.fulfillOrder([order, zeroHash]);
+
+      // neither account should have any tokens
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // check time lock contract balances for each
+      expect(await usdc.read.balanceOf([timeLock.address])).to.eq(
+        usdcTradeAmount
+      );
+      expect(await weth.read.balanceOf([timeLock.address])).to.eq(
+        wethTradeamount
+      );
+
+      // go forward in time so that the positions unlock
+      // we set them to unlock after 24 hours
+      await time.increase(86500);
+
+      // get nft ids
+      const aliceNftId = await timeLock.read.tokenOfOwnerByIndex([
+        alice.account.address,
+        0n,
+      ]);
+      const bobNftId = await timeLock.read.tokenOfOwnerByIndex([
+        bob.account.address,
+        0n,
+      ]);
+
+      // each user retrieves their positions
+      await (await getTimeLock(alice)).write.redeemNFT([aliceNftId]);
+      await (await getTimeLock(bob)).write.redeemNFT([bobNftId]);
+
+      // check all balances
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(
+        wethTradeamount
+      );
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(
+        usdcTradeAmount
+      );
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
+    });
+
+    /*
+      Try to unlock nfts early
+    */
+    it("TimeLockHandler swaps correctly and creates token locks, try to unlock early", async function () {
+      const {
+        alice,
+        bob,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
+        startingWethBalance,
+        timeLockHandler,
+        timeLock,
+        getTimeLock,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob can fill the trade
+      // alice and bob approve seaport contract
+      await (
+        await getUsdc(alice)
+      ).write.approve([seaportAddress, usdcTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // alice and bob also have to approve the time lock handler for the opposite token
+      // bc time locks are created atomically post-trade
+      await (
+        await getWeth(alice)
+      ).write.approve([timeLockHandler.address, wethTradeamount]);
+      await (
+        await getUsdc(bob)
+      ).write.approve([timeLockHandler.address, usdcTradeAmount]);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: timeLockHandler.address, // don't forget this
+
+        // this is what the trader is giving
+        offer: [
+          {
+            itemType: 1, // 1 == erc20
+            token: usdc.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
+        ],
+        orderType: 2, // full restricted
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+        zoneHash: encodeAbiParameters(
+          [{ name: "unlockDate", type: "uint256" }],
+          [timestamp + 86400n]
+        ), // encode unlock date
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+      const order = {
+        parameters: orderParameters,
+        signature: signature,
+      };
+
+      // check that bob can swap
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // bob receives the signed order and fulfills it
+      await (await getSeaport(bob)).write.fulfillOrder([order, zeroHash]);
+
+      // neither account should have any tokens
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // check time lock contract balances for each
+      expect(await usdc.read.balanceOf([timeLock.address])).to.eq(
+        usdcTradeAmount
+      );
+      expect(await weth.read.balanceOf([timeLock.address])).to.eq(
+        wethTradeamount
+      );
+
+      // get nft ids
+      const aliceNftId = await timeLock.read.tokenOfOwnerByIndex([
+        alice.account.address,
+        0n,
+      ]);
+      const bobNftId = await timeLock.read.tokenOfOwnerByIndex([
+        bob.account.address,
+        0n,
+      ]);
+
+      // each user retrieves their positions
+      expect(
+        (await getTimeLock(alice)).write.redeemNFT([aliceNftId])
+      ).to.be.rejectedWith("NFT04");
+      expect(
+        (await getTimeLock(bob)).write.redeemNFT([bobNftId])
+      ).to.be.rejectedWith("NFT04");
     });
   });
 });

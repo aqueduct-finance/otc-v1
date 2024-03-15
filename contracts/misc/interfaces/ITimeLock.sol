@@ -8,4 +8,11 @@ interface ITimeLock {
         address _token,
         uint256 _unlockDate
     ) external returns (uint256);
+
+    function redeemNFT(uint256 _id) external returns (bool);
+
+    function tokenOfOwnerByIndex(
+        address owner,
+        uint256 index
+    ) external view returns (uint256);
 }
