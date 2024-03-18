@@ -18,6 +18,12 @@ const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 const seaportAddress = '0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC';
 
 /**
+ * @notice this example address is for sepolia
+ * - change this when deploying to other chains
+ */
+const timeLockAddress = '0x3B9007eD3106fEA9821A657f930995A2F9A20C97';
+
+/**
  * @notice this is the address that controls server signatures
  */
 const serverSignatureAddress = '0xCe597c10BDbb2943E685453Bdefe6C4B090E8775';
@@ -70,6 +76,17 @@ const main = async () => {
     await hre.run("verify:verify", {
         address: zoneAggregator.address,
         constructorArguments: [],
+    });
+
+    // deploy TimeLockHandler.sol
+    const timeLockHandler = await hre.viem.deployContract('TimeLockHandler', [timeLockAddress]);
+    console.log('TimeLockHandler: ', timeLockHandler.address)
+
+    // wait for deployment and verify
+    await delay(30000);
+    await hre.run("verify:verify", {
+        address: timeLockHandler.address,
+        constructorArguments: [timeLockAddress],
     });
 };
 
