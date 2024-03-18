@@ -3,7 +3,7 @@ import {
   time,
 } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { expect } from "chai";
-import { parseUnits, encodeAbiParameters } from "viem";
+import { parseUnits, encodeAbiParameters, keccak256 } from "viem";
 import hre from "hardhat";
 import orderType from "./utils/orderType";
 import { seaportAddress, zeroHash } from "./utils/constants";
@@ -77,6 +77,25 @@ describe("TimeLockHandler tests", function () {
 
       // construct order
       const salt = generateSalt();
+      const encodedLockParams = encodeAbiParameters(
+        [
+          {
+            name: "LockParams",
+            type: "tuple",
+            components: [
+              { name: "offerUnlockDate", type: "uint256" },
+              { name: "considerationUnlockDate", type: "uint256" },
+            ],
+          },
+        ],
+        [
+          {
+            offerUnlockDate: timestamp + 500n,
+            considerationUnlockDate: timestamp + 250n,
+          },
+        ]
+      );
+      const hashedLockParams = keccak256(encodedLockParams);
       const baseOrderParameters = {
         offerer: alice.account.address,
         zone: timeLockHandler.address, // don't forget this
@@ -106,10 +125,7 @@ describe("TimeLockHandler tests", function () {
         orderType: 2, // full restricted
         startTime: timestamp,
         endTime: timestamp + 86400n, // 24 hours from now
-        zoneHash: encodeAbiParameters(
-          [{ name: "unlockDate", type: "uint256" }],
-          [timestamp + 86400n]
-        ), // encode unlock date
+        zoneHash: hashedLockParams,
         salt: salt,
         conduitKey: zeroHash, // not using a conduit
       };
@@ -148,6 +164,15 @@ describe("TimeLockHandler tests", function () {
         signature: signature,
       };
 
+      // construct advanced order
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: wethTradeamount,
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedLockParams,
+      };
+
       // check that bob can swap
       // check for expected starting balances
       expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
@@ -160,7 +185,14 @@ describe("TimeLockHandler tests", function () {
       expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // bob receives the signed order and fulfills it
-      await (await getSeaport(bob)).write.fulfillOrder([order, zeroHash]);
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
 
       // neither account should have any tokens
       expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
@@ -222,6 +254,25 @@ describe("TimeLockHandler tests", function () {
 
       // construct order
       const salt = generateSalt();
+      const encodedLockParams = encodeAbiParameters(
+        [
+          {
+            name: "LockParams",
+            type: "tuple",
+            components: [
+              { name: "offerUnlockDate", type: "uint256" },
+              { name: "considerationUnlockDate", type: "uint256" },
+            ],
+          },
+        ],
+        [
+          {
+            offerUnlockDate: timestamp + 500n,
+            considerationUnlockDate: timestamp + 250n,
+          },
+        ]
+      );
+      const hashedLockParams = keccak256(encodedLockParams);
       const baseOrderParameters = {
         offerer: alice.account.address,
         zone: timeLockHandler.address, // don't forget this
@@ -251,10 +302,7 @@ describe("TimeLockHandler tests", function () {
         orderType: 2, // full restricted
         startTime: timestamp,
         endTime: timestamp + 86400n, // 24 hours from now
-        zoneHash: encodeAbiParameters(
-          [{ name: "unlockDate", type: "uint256" }],
-          [timestamp + 86400n]
-        ), // encode unlock date
+        zoneHash: hashedLockParams,
         salt: salt,
         conduitKey: zeroHash, // not using a conduit
       };
@@ -293,6 +341,15 @@ describe("TimeLockHandler tests", function () {
         signature: signature,
       };
 
+      // construct advanced order
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: wethTradeamount,
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedLockParams,
+      };
+
       // check that bob can swap
       // check for expected starting balances
       expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
@@ -305,7 +362,14 @@ describe("TimeLockHandler tests", function () {
       expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // bob receives the signed order and fulfills it
-      await (await getSeaport(bob)).write.fulfillOrder([order, zeroHash]);
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
 
       // neither account should have any tokens
       expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
@@ -321,9 +385,8 @@ describe("TimeLockHandler tests", function () {
         wethTradeamount
       );
 
-      // go forward in time so that the positions unlock
-      // we set them to unlock after 24 hours
-      await time.increase(86500);
+      // go forward in time so that both positions unlock
+      await time.increase(600);
 
       // get nft ids
       const aliceNftId = await timeLock.read.tokenOfOwnerByIndex([
@@ -395,6 +458,25 @@ describe("TimeLockHandler tests", function () {
 
       // construct order
       const salt = generateSalt();
+      const encodedLockParams = encodeAbiParameters(
+        [
+          {
+            name: "LockParams",
+            type: "tuple",
+            components: [
+              { name: "offerUnlockDate", type: "uint256" },
+              { name: "considerationUnlockDate", type: "uint256" },
+            ],
+          },
+        ],
+        [
+          {
+            offerUnlockDate: timestamp + 500n,
+            considerationUnlockDate: timestamp + 250n,
+          },
+        ]
+      );
+      const hashedLockParams = keccak256(encodedLockParams);
       const baseOrderParameters = {
         offerer: alice.account.address,
         zone: timeLockHandler.address, // don't forget this
@@ -424,10 +506,7 @@ describe("TimeLockHandler tests", function () {
         orderType: 2, // full restricted
         startTime: timestamp,
         endTime: timestamp + 86400n, // 24 hours from now
-        zoneHash: encodeAbiParameters(
-          [{ name: "unlockDate", type: "uint256" }],
-          [timestamp + 86400n]
-        ), // encode unlock date
+        zoneHash: hashedLockParams,
         salt: salt,
         conduitKey: zeroHash, // not using a conduit
       };
@@ -466,6 +545,15 @@ describe("TimeLockHandler tests", function () {
         signature: signature,
       };
 
+      // construct advanced order
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: wethTradeamount,
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedLockParams,
+      };
+
       // check that bob can swap
       // check for expected starting balances
       expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
@@ -478,7 +566,14 @@ describe("TimeLockHandler tests", function () {
       expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // bob receives the signed order and fulfills it
-      await (await getSeaport(bob)).write.fulfillOrder([order, zeroHash]);
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
 
       // neither account should have any tokens
       expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
@@ -504,10 +599,26 @@ describe("TimeLockHandler tests", function () {
         0n,
       ]);
 
-      // each user retrieves their positions
+      // both should fail if trying to unlock immediately
       expect(
         (await getTimeLock(alice)).write.redeemNFT([aliceNftId])
       ).to.be.rejectedWith("NFT04");
+      expect(
+        (await getTimeLock(bob)).write.redeemNFT([bobNftId])
+      ).to.be.rejectedWith("NFT04");
+
+      // consideration unlocks first after 250 seconds
+      await time.increase(300);
+      expect(
+        (await getTimeLock(alice)).write.redeemNFT([aliceNftId])
+      ).to.not.be.rejected;
+      // but offer shouldn't be unlocked yet
+      expect(
+        (await getTimeLock(bob)).write.redeemNFT([bobNftId])
+      ).to.be.rejectedWith("NFT04");
+
+      // now offer should unlock
+      await time.increase(300);
       expect(
         (await getTimeLock(bob)).write.redeemNFT([bobNftId])
       ).to.be.rejectedWith("NFT04");
