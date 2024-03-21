@@ -21,9 +21,18 @@ const config: HardhatUserConfig = {
       url: process.env.ETHEREUM_URL || "",
       accounts: [process.env.PRIVATE_KEY || ""],
     },
+    polygon: {
+      chainId: 137,
+      url: process.env.POLYGON_URL || "",
+      accounts: [process.env.PRIVATE_KEY || ""],
+    },
   },
   etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY,
+    apiKey: {
+      ethereum: process.env.ETHERSCAN_API_KEY ?? "",
+      sepolia: process.env.ETHERSCAN_API_KEY ?? "",
+      polygon: process.env.POLYGONSCAN_API_KEY ?? "",
+    },
   },
   solidity: "0.8.20",
 };
