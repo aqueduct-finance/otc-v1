@@ -46,12 +46,13 @@ contract TimeLockHandler is ITimeLockHandler {
             (LockParams)
         );
 
-        // data
-        SpentItem memory offer = zoneParameters.offer[0];
-        ReceivedItem memory consideration = zoneParameters.consideration[0];
-
         // create time locks for each if specified
         if (lockParams.considerationUnlockDate != 0) {
+             if (zoneParameters.consideration.length > 1) {
+                revert NO_CONSIDERATION();
+            }
+            ReceivedItem memory consideration = zoneParameters.consideration[0];
+
             // get tokens from offerer
             SafeERC20.safeTransferFrom(
                 IERC20(consideration.token),
@@ -74,6 +75,11 @@ contract TimeLockHandler is ITimeLockHandler {
             );
         }
         if (lockParams.offerUnlockDate != 0) {
+            if (zoneParameters.offer.length > 1) {
+                revert NO_OFFER();
+            }
+            SpentItem memory offer = zoneParameters.offer[0];
+
             // get tokens from fulfiller
             SafeERC20.safeTransferFrom(
                 IERC20(offer.token),
