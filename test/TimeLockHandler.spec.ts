@@ -21,6 +21,7 @@ describe("TimeLockHandler tests", function () {
 
     const timeLockHandler = await hre.viem.deployContract("TimeLockHandler", [
       tL.timeLock.address,
+      sf.seaport.address,
     ]);
 
     return {
@@ -739,7 +740,7 @@ describe("TimeLockHandler tests", function () {
       ).to.be.rejectedWith("NO_OFFER");
     });
 
-    it("internal audit: anyone can lock another user's tokens", async function () {
+    it("only seaport allowed to call validateOrder", async function () {
       const {
         alice,
         bob,
@@ -751,76 +752,24 @@ describe("TimeLockHandler tests", function () {
         getTimeLock,
       } = await loadFixture(fixture);
 
-      // amounts
-      const timestamp = await getBlockTimestamp();
-      const wethTradeamount = parseUnits("1", 18);
-
-      // imagine that bob was trading with alice and had approved the time lock handler to spend his weth
-      await (
-        await getWeth(bob)
-      ).write.approve([timeLockHandler.address, wethTradeamount]);
-
-      // check for expected starting balance
-      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
-        startingWethBalance
-      );
-
-      // charlie, an adversary, calls the zone directly with malicious zone params
-      const encodedLockParams = encodeAbiParameters(
-        [
-          {
-            name: "LockParams",
-            type: "tuple",
-            components: [
-              { name: "offerUnlockDate", type: "uint256" },
-              { name: "considerationUnlockDate", type: "uint256" },
-            ],
-          },
-        ],
-        [
-          {
-            offerUnlockDate: timestamp * 2n,
-            considerationUnlockDate: 0n,
-          },
-        ]
-      );
-      const hashedLockParams = keccak256(encodedLockParams);
+      // fake zone params for testing, these don't matter
       const fakeZoneParams = {
         orderHash: zeroHash,
         fulfiller: bob.account.address,
         offerer: zeroAddress,
-        offer: [
-          {
-            itemType: 1, // erc20
-            token: weth.address,
-            identifier: 0n,
-            amount: wethTradeamount,
-          },
-        ],
+        offer: [],
         consideration: [],
-        extraData: encodedLockParams,
+        extraData: zeroHash,
         orderHashes: [],
         startTime: 0n,
         endTime: 0n,
-        zoneHash: hashedLockParams,
+        zoneHash: zeroHash,
       };
-      await timeLockHandler.write.validateOrder([fakeZoneParams]);
-
-      // check resulting balance
-      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
-        startingWethBalance - wethTradeamount
-      );
-
-      // get nft id
-      const bobNftId = await timeLock.read.tokenOfOwnerByIndex([
-        bob.account.address,
-        0n,
-      ]);
-
-      // bob can't get his weth because it is locked for a long time
+      
+      // try calling validateOrder directly
       expect(
-        (await getTimeLock(bob)).write.redeemNFT([bobNftId])
-      ).to.be.rejectedWith("NFT04");
+        timeLockHandler.write.validateOrder([fakeZoneParams])
+      ).to.be.rejectedWith("CALLER_NOT_SEAPORT");
     });
   });
 });

@@ -15,9 +15,11 @@ import {ITimeLockHandler} from "./interfaces/ITimeLockHandler.sol";
  */
 contract TimeLockHandler is ITimeLockHandler {
     ITimeLock public immutable timeLock;
+    address public immutable seaport;
 
-    constructor(address _timeLock) {
+    constructor(address _timeLock, address _seaport) {
         timeLock = ITimeLock(_timeLock);
+        seaport = _seaport;
     }
 
     ///////////////////////////////////////////////////////////
@@ -34,6 +36,11 @@ contract TimeLockHandler is ITimeLockHandler {
     function validateOrder(
         ZoneParameters calldata zoneParameters
     ) external returns (bytes4 validOrderMagicValue) {
+        // only allowed to be called by seaport
+        if (msg.sender != seaport) {
+            revert CALLER_NOT_SEAPORT();
+        }
+
         // validate data first
         bytes32 zoneHash = keccak256(zoneParameters.extraData);
         if (zoneHash != zoneParameters.zoneHash) {
@@ -48,7 +55,7 @@ contract TimeLockHandler is ITimeLockHandler {
 
         // create time locks for each if specified
         if (lockParams.considerationUnlockDate != 0) {
-             if (zoneParameters.consideration.length > 1) {
+            if (zoneParameters.consideration.length > 1) {
                 revert NO_CONSIDERATION();
             }
             ReceivedItem memory consideration = zoneParameters.consideration[0];
