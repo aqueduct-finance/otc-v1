@@ -15,9 +15,11 @@ import {ITimeLockHandler} from "./interfaces/ITimeLockHandler.sol";
  */
 contract TimeLockHandler is ITimeLockHandler {
     ITimeLock public immutable timeLock;
+    address public immutable seaport;
 
-    constructor(address _timeLock) {
+    constructor(address _timeLock, address _seaport) {
         timeLock = ITimeLock(_timeLock);
+        seaport = _seaport;
     }
 
     ///////////////////////////////////////////////////////////
@@ -31,9 +33,17 @@ contract TimeLockHandler is ITimeLockHandler {
         uint256 considerationUnlockDate;
     }
 
+    /**
+     * @dev called by seaport after an order is settled
+     */
     function validateOrder(
         ZoneParameters calldata zoneParameters
     ) external returns (bytes4 validOrderMagicValue) {
+        // only allowed to be called by seaport
+        if (msg.sender != seaport) {
+            revert CALLER_NOT_SEAPORT();
+        }
+
         // validate data first
         bytes32 zoneHash = keccak256(zoneParameters.extraData);
         if (zoneHash != zoneParameters.zoneHash) {
@@ -46,54 +56,64 @@ contract TimeLockHandler is ITimeLockHandler {
             (LockParams)
         );
 
-        // data
-        SpentItem memory offer = zoneParameters.offer[0];
-        ReceivedItem memory consideration = zoneParameters.consideration[0];
-
         // create time locks for each if specified
         if (lockParams.considerationUnlockDate != 0) {
-            // get tokens from offerer
-            SafeERC20.safeTransferFrom(
-                IERC20(consideration.token),
-                zoneParameters.offerer,
-                address(this),
-                consideration.amount
-            );
+            if (zoneParameters.consideration.length > 1) {
+                revert NO_CONSIDERATION();
+            }
+            ReceivedItem memory consideration = zoneParameters.consideration[0];
 
-            // approve time lock contract to spend this token
-            IERC20(consideration.token).approve(
-                address(timeLock),
-                consideration.amount
-            );
-
-            timeLock.createNFT(
+            _createTimeLock(
                 zoneParameters.offerer,
-                consideration.amount,
                 consideration.token,
+                consideration.amount,
                 lockParams.considerationUnlockDate
             );
         }
         if (lockParams.offerUnlockDate != 0) {
-            // get tokens from fulfiller
-            SafeERC20.safeTransferFrom(
-                IERC20(offer.token),
-                zoneParameters.fulfiller,
-                address(this),
-                offer.amount
-            );
+            if (zoneParameters.offer.length > 1) {
+                revert NO_OFFER();
+            }
+            SpentItem memory offer = zoneParameters.offer[0];
 
-            // approve time lock contract to spend this token
-            IERC20(offer.token).approve(address(timeLock), offer.amount);
-
-            timeLock.createNFT(
+            _createTimeLock(
                 zoneParameters.fulfiller,
-                offer.amount,
                 offer.token,
+                offer.amount,
                 lockParams.offerUnlockDate
             );
         }
 
         validOrderMagicValue = ZoneInterface.validateOrder.selector;
+    }
+
+    /**
+     * @dev internal function to transfer tokens from user and create time lock
+     *
+     * @param recipient the recipient of the time lock, transfers tokens from them
+     * @param token the token to transfer and lock
+     * @param amount the amount to transfer and lock
+     * @param unlockDate the timestamp that the position will be locked until
+     */
+    function _createTimeLock(
+        address recipient,
+        address token,
+        uint256 amount,
+        uint256 unlockDate
+    ) internal {
+        // get tokens from user
+        SafeERC20.safeTransferFrom(
+            IERC20(token),
+            recipient,
+            address(this),
+            amount
+        );
+
+        // approve time lock contract to spend this token
+        IERC20(token).approve(address(timeLock), amount);
+
+        // create time lock
+        timeLock.createNFT(recipient, amount, token, unlockDate);
     }
 
     function getSeaportMetadata()

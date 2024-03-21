@@ -6,7 +6,7 @@ import { expect } from "chai";
 import { parseUnits, encodeAbiParameters, keccak256 } from "viem";
 import hre from "hardhat";
 import orderType from "./utils/orderType";
-import { seaportAddress, zeroHash } from "./utils/constants";
+import { seaportAddress, zeroAddress, zeroHash } from "./utils/constants";
 import generateSalt from "./utils/generateSalt";
 import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
@@ -21,6 +21,7 @@ describe("TimeLockHandler tests", function () {
 
     const timeLockHandler = await hre.viem.deployContract("TimeLockHandler", [
       tL.timeLock.address,
+      sf.seaport.address,
     ]);
 
     return {
@@ -609,9 +610,8 @@ describe("TimeLockHandler tests", function () {
 
       // consideration unlocks first after 250 seconds
       await time.increase(300);
-      expect(
-        (await getTimeLock(alice)).write.redeemNFT([aliceNftId])
-      ).to.not.be.rejected;
+      expect((await getTimeLock(alice)).write.redeemNFT([aliceNftId])).to.not.be
+        .rejected;
       // but offer shouldn't be unlocked yet
       expect(
         (await getTimeLock(bob)).write.redeemNFT([bobNftId])
@@ -622,6 +622,154 @@ describe("TimeLockHandler tests", function () {
       expect(
         (await getTimeLock(bob)).write.redeemNFT([bobNftId])
       ).to.be.rejectedWith("NFT04");
+    });
+
+    it("try to lock order with no offer and/or consideration", async function () {
+      const {
+        alice,
+        bob,
+        weth,
+        getWeth,
+        startingWethBalance,
+        timeLockHandler,
+        timeLock,
+        getTimeLock,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const wethTradeamount = parseUnits("1", 18);
+
+      // imagine that bob was trading with alice and had approved the time lock handler to spend his weth
+      await (
+        await getWeth(bob)
+      ).write.approve([timeLockHandler.address, wethTradeamount]);
+
+      // check for expected starting balance
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+
+      // just test by calling zone directly, because seaport will reject order with no offer/consideration
+      // no consideration
+      const encodedLockParamsNoConsideration = encodeAbiParameters(
+        [
+          {
+            name: "LockParams",
+            type: "tuple",
+            components: [
+              { name: "offerUnlockDate", type: "uint256" },
+              { name: "considerationUnlockDate", type: "uint256" },
+            ],
+          },
+        ],
+        [
+          {
+            offerUnlockDate: timestamp,
+            considerationUnlockDate: 0n,
+          },
+        ]
+      );
+      const hashedLockParamsNoConsideration = keccak256(
+        encodedLockParamsNoConsideration
+      );
+      const zoneParamsNoConsideration = {
+        orderHash: zeroHash,
+        fulfiller: bob.account.address,
+        offerer: zeroAddress,
+        offer: [
+          {
+            itemType: 1, // erc20
+            token: weth.address,
+            identifier: 0n,
+            amount: wethTradeamount,
+          },
+        ],
+        consideration: [],
+        extraData: encodedLockParamsNoConsideration,
+        orderHashes: [],
+        startTime: 0n,
+        endTime: 0n,
+        zoneHash: hashedLockParamsNoConsideration,
+      };
+      expect(
+        timeLockHandler.write.validateOrder([zoneParamsNoConsideration])
+      ).to.be.rejectedWith("NO_CONSIDERATION");
+
+      // no offer
+      const encodedLockParamsNoOffer = encodeAbiParameters(
+        [
+          {
+            name: "LockParams",
+            type: "tuple",
+            components: [
+              { name: "offerUnlockDate", type: "uint256" },
+              { name: "considerationUnlockDate", type: "uint256" },
+            ],
+          },
+        ],
+        [
+          {
+            offerUnlockDate: timestamp,
+            considerationUnlockDate: 0n,
+          },
+        ]
+      );
+      const hashedLockParamsNoOffer = keccak256(encodedLockParamsNoOffer);
+      const zoneParamsNoOffer = {
+        orderHash: zeroHash,
+        fulfiller: bob.account.address,
+        offerer: zeroAddress,
+        offer: [
+          {
+            itemType: 1, // erc20
+            token: weth.address,
+            identifier: 0n,
+            amount: wethTradeamount,
+          },
+        ],
+        consideration: [],
+        extraData: encodedLockParamsNoOffer,
+        orderHashes: [],
+        startTime: 0n,
+        endTime: 0n,
+        zoneHash: hashedLockParamsNoOffer,
+      };
+      expect(
+        timeLockHandler.write.validateOrder([zoneParamsNoOffer])
+      ).to.be.rejectedWith("NO_OFFER");
+    });
+
+    it("only seaport allowed to call validateOrder", async function () {
+      const {
+        alice,
+        bob,
+        weth,
+        getWeth,
+        startingWethBalance,
+        timeLockHandler,
+        timeLock,
+        getTimeLock,
+      } = await loadFixture(fixture);
+
+      // fake zone params for testing, these don't matter
+      const fakeZoneParams = {
+        orderHash: zeroHash,
+        fulfiller: bob.account.address,
+        offerer: zeroAddress,
+        offer: [],
+        consideration: [],
+        extraData: zeroHash,
+        orderHashes: [],
+        startTime: 0n,
+        endTime: 0n,
+        zoneHash: zeroHash,
+      };
+      
+      // try calling validateOrder directly
+      expect(
+        timeLockHandler.write.validateOrder([fakeZoneParams])
+      ).to.be.rejectedWith("CALLER_NOT_SEAPORT");
     });
   });
 });
