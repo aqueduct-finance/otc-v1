@@ -33,6 +33,9 @@ contract TimeLockHandler is ITimeLockHandler {
         uint256 considerationUnlockDate;
     }
 
+    /**
+     * @dev called by seaport after an order is settled
+     */
     function validateOrder(
         ZoneParameters calldata zoneParameters
     ) external returns (bytes4 validOrderMagicValue) {
@@ -60,24 +63,10 @@ contract TimeLockHandler is ITimeLockHandler {
             }
             ReceivedItem memory consideration = zoneParameters.consideration[0];
 
-            // get tokens from offerer
-            SafeERC20.safeTransferFrom(
-                IERC20(consideration.token),
+            _createTimeLock(
                 zoneParameters.offerer,
-                address(this),
-                consideration.amount
-            );
-
-            // approve time lock contract to spend this token
-            IERC20(consideration.token).approve(
-                address(timeLock),
-                consideration.amount
-            );
-
-            timeLock.createNFT(
-                zoneParameters.offerer,
-                consideration.amount,
                 consideration.token,
+                consideration.amount,
                 lockParams.considerationUnlockDate
             );
         }
@@ -87,26 +76,44 @@ contract TimeLockHandler is ITimeLockHandler {
             }
             SpentItem memory offer = zoneParameters.offer[0];
 
-            // get tokens from fulfiller
-            SafeERC20.safeTransferFrom(
-                IERC20(offer.token),
+            _createTimeLock(
                 zoneParameters.fulfiller,
-                address(this),
-                offer.amount
-            );
-
-            // approve time lock contract to spend this token
-            IERC20(offer.token).approve(address(timeLock), offer.amount);
-
-            timeLock.createNFT(
-                zoneParameters.fulfiller,
-                offer.amount,
                 offer.token,
+                offer.amount,
                 lockParams.offerUnlockDate
             );
         }
 
         validOrderMagicValue = ZoneInterface.validateOrder.selector;
+    }
+
+    /**
+     * @dev internal function to transfer tokens from user and create time lock
+     *
+     * @param recipient the recipient of the time lock, transfers tokens from them
+     * @param token the token to transfer and lock
+     * @param amount the amount to transfer and lock
+     * @param unlockDate the timestamp that the position will be locked until
+     */
+    function _createTimeLock(
+        address recipient,
+        address token,
+        uint256 amount,
+        uint256 unlockDate
+    ) internal {
+        // get tokens from user
+        SafeERC20.safeTransferFrom(
+            IERC20(token),
+            recipient,
+            address(this),
+            amount
+        );
+
+        // approve time lock contract to spend this token
+        IERC20(token).approve(address(timeLock), amount);
+
+        // create time lock
+        timeLock.createNFT(recipient, amount, token, unlockDate);
     }
 
     function getSeaportMetadata()
