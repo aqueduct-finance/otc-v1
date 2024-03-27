@@ -7,5 +7,19 @@ interface ITokenLockupPlansHandler is ZoneInterface {
     error INVALID_EXTRA_DATA();
     error NO_OFFER();
     error NO_CONSIDERATION();
+    error OFFER_NOT_ERC20();
+    error CONSIDERATION_NOT_ERC20();
     error CALLER_NOT_SEAPORT();
+
+    struct CreatePlanParams {
+        uint256 start;
+        uint256 cliff;
+        uint256 rate;
+        uint256 period;
+    }
+
+    struct LockParams {
+        CreatePlanParams offerLockupParams;
+        CreatePlanParams considerationLockupParams;
+    }
 }
