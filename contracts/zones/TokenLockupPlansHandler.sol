@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.20;
 
 import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
@@ -11,7 +11,11 @@ import {IERC20} from "../tokens/interfaces/IERC20.sol";
 import {ITokenLockupPlansHandler} from "./interfaces/ITokenLockupPlansHandler.sol";
 
 /**
- * @notice TokenLockupPlansHandler
+ * @title TokenLockupPlansHandler
+ *
+ * A zone contract for OpenSea's seaport protocol.
+ * Atomically creates token lockups after settlement on seaport.
+ * Uses Hedgey's TokenLockupPlansHandler contract for lockups.
  */
 contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
     ITokenLockupPlans public immutable tokenLockupPlans;
@@ -22,26 +26,10 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         seaport = _seaport;
     }
 
-    ///////////////////////////////////////////////////////////
-    ///                                                     ///
-    ///                Seaport Zone Interface               ///
-    ///                                                     ///
-    ///////////////////////////////////////////////////////////
-
-    struct CreatePlanParams {
-        uint256 start;
-        uint256 cliff;
-        uint256 rate;
-        uint256 period;
-    }
-
-    struct LockParams {
-        CreatePlanParams offerLockupParams;
-        CreatePlanParams considerationLockupParams;
-    }
-
     /**
      * @dev called by seaport after an order is settled
+     *
+     * @param zoneParameters the params passed from seaport
      */
     function validateOrder(
         ZoneParameters calldata zoneParameters
@@ -70,6 +58,10 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
             }
             ReceivedItem memory consideration = zoneParameters.consideration[0];
 
+            if (consideration.itemType != ItemType.ERC20) {
+                revert CONSIDERATION_NOT_ERC20();
+            }
+
             _createLockup(
                 zoneParameters.offerer,
                 consideration.token,
@@ -82,6 +74,10 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
                 revert NO_OFFER();
             }
             SpentItem memory offer = zoneParameters.offer[0];
+
+            if (offer.itemType != ItemType.ERC20) {
+                revert OFFER_NOT_ERC20();
+            }
 
             _createLockup(
                 zoneParameters.fulfiller,
@@ -96,6 +92,11 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
 
     /**
      * @dev internal function to transfer tokens from user and create lockup plan
+     *
+     * @param recipient the recipient of the lockup
+     * @param token the token to transfer and lock
+     * @param amount the amount to transfer and lock
+     * @param createPlanParams the params defined by the user when they created the order
      */
     function _createLockup(
         address recipient,
@@ -126,15 +127,19 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         );
     }
 
+    /**
+     * @notice required by ZoneInterface, not necessary to implement
+     */
     function getSeaportMetadata()
         external
         view
         returns (string memory name, Schema[] memory schemas)
     {}
 
-    function supportsInterface(
-        bytes4 //interfaceId
-    ) external pure returns (bool) {
+    /**
+     * @notice required by ZoneInterface, not necessary to implement
+     */
+    function supportsInterface(bytes4) external pure returns (bool) {
         return true;
     }
 }
