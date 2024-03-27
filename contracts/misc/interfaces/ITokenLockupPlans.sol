@@ -21,4 +21,6 @@ interface ITokenLockupPlans {
         uint256 rate,
         uint256 period
     ) external returns (uint256 newPlanId);
+
+    function redeemAllPlans() external;
 }
