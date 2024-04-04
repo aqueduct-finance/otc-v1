@@ -52,7 +52,7 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         );
 
         // create time locks for each if specified
-        if (lockParams.considerationLockupParams.start != 0) {
+        if (lockParams.considerationLockupParams.initialized) {
             if (zoneParameters.consideration.length < 1) {
                 revert NO_CONSIDERATION();
             }
@@ -69,7 +69,7 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
                 lockParams.considerationLockupParams
             );
         }
-        if (lockParams.offerLockupParams.start != 0) {
+        if (lockParams.offerLockupParams.initialized) {
             if (zoneParameters.offer.length < 1) {
                 revert NO_OFFER();
             }
@@ -115,14 +115,33 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         // approve tokenLockupPlans contract to spend this token
         IERC20(token).approve(address(tokenLockupPlans), amount);
 
+        // if user didn't specify start time, use block.timestamp
+        if (createPlanParams.start == 0) {
+            createPlanParams.start = block.timestamp;
+        }
+
+        // end offset should be greater than cliff offset
+        if (createPlanParams.endOffsetTime < createPlanParams.cliffOffsetTime) {
+            revert END_LESS_THAN_CLIFF();
+        }
+
+        // calculate rate
+        uint256 rate = (amount * createPlanParams.period) /
+            createPlanParams.endOffsetTime;
+
+        // check for underflow
+        if (rate == 0) {
+            revert INVALID_RATE();
+        }
+
         // create lockup
         tokenLockupPlans.createPlan(
             recipient,
             token,
             amount,
             createPlanParams.start,
-            createPlanParams.cliff,
-            createPlanParams.rate,
+            createPlanParams.start + createPlanParams.cliffOffsetTime,
+            rate,
             createPlanParams.period
         );
     }
