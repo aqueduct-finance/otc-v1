@@ -10,11 +10,19 @@ interface ITokenLockupPlansHandler is ZoneInterface {
     error OFFER_NOT_ERC20();
     error CONSIDERATION_NOT_ERC20();
     error CALLER_NOT_SEAPORT();
+    error END_LESS_THAN_CLIFF();
+    error INVALID_RATE();
 
+    /**
+     * @param start when the vesting plan starts, a unix timestamp
+     * @param cliffOffsetTime number of seconds after start, when the cliff begins
+     * @param endOffsetTime number of seconds after start, when the plan is fully vested
+     * @param period how frequently tokens will vest after the cliff (e.g. 100 = every 100 seconds)
+     */
     struct CreatePlanParams {
         uint256 start;
         uint256 cliffOffsetTime;
-        uint256 rate;
+        uint256 endOffsetTime;
         uint256 period;
         bool initialized;
     }

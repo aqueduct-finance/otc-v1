@@ -120,6 +120,20 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
             createPlanParams.start = block.timestamp;
         }
 
+        // end offset should be greater than cliff offset
+        if (createPlanParams.endOffsetTime < createPlanParams.cliffOffsetTime) {
+            revert END_LESS_THAN_CLIFF();
+        }
+
+        // calculate rate
+        uint256 rate = (amount * createPlanParams.period) /
+            createPlanParams.endOffsetTime;
+
+        // check for underflow
+        if (rate == 0) {
+            revert INVALID_RATE();
+        }
+
         // create lockup
         tokenLockupPlans.createPlan(
             recipient,
@@ -127,7 +141,7 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
             amount,
             createPlanParams.start,
             createPlanParams.start + createPlanParams.cliffOffsetTime,
-            createPlanParams.rate,
+            rate,
             createPlanParams.period
         );
     }
