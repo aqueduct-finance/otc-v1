@@ -52,7 +52,7 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         );
 
         // create time locks for each if specified
-        if (lockParams.considerationLockupParams.start != 0) {
+        if (lockParams.considerationLockupParams.initialized) {
             if (zoneParameters.consideration.length < 1) {
                 revert NO_CONSIDERATION();
             }
@@ -69,7 +69,7 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
                 lockParams.considerationLockupParams
             );
         }
-        if (lockParams.offerLockupParams.start != 0) {
+        if (lockParams.offerLockupParams.initialized) {
             if (zoneParameters.offer.length < 1) {
                 revert NO_OFFER();
             }

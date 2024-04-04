@@ -92,6 +92,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
               {
@@ -102,6 +103,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
             ],
@@ -114,12 +116,14 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: timestamp + 1000n,
               rate: 1000n,
               period: 1n,
+              initialized: true,
             },
             considerationLockupParams: {
               start: timestamp + 500n,
               cliff: timestamp + 1000n,
               rate: 1000n,
               period: 1n,
+              initialized: true,
             },
           },
         ]
@@ -293,6 +297,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
               {
@@ -303,6 +308,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
             ],
@@ -315,6 +321,7 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: timestamp + 1000n,
               rate: 1000n,
               period: 1n,
+              initialized: true,
             },
             // set everything to 0
             considerationLockupParams: {
@@ -322,6 +329,7 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: 0n,
               rate: 0n,
               period: 0n,
+              initialized: false,
             },
           },
         ]
@@ -487,6 +495,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
               {
@@ -497,6 +506,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
             ],
@@ -509,6 +519,7 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: timestamp + 1000n,
               rate: 1000n,
               period: 1n,
+              initialized: true,
             },
             // set everything to 0
             offerLockupParams: {
@@ -516,6 +527,7 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: 0n,
               rate: 0n,
               period: 0n,
+              initialized: false,
             },
           },
         ]
@@ -688,6 +700,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
               {
@@ -698,6 +711,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
             ],
@@ -710,12 +724,14 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: timestamp + cliff,
               rate: usdcRate,
               period: 1n,
+              initialized: true,
             },
             considerationLockupParams: {
               start: timestamp,
               cliff: timestamp + cliff,
               rate: wethRate,
               period: 1n,
+              initialized: true,
             },
           },
         ]
@@ -917,6 +933,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
             ],
@@ -929,6 +946,7 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: timestamp + 1000n,
               rate: 1000n,
               period: 1n,
+              initialized: true,
             },
           },
         ]
@@ -974,6 +992,7 @@ describe("TokenLockupPlansHandler tests", function () {
                   { name: "cliff", type: "uint256" },
                   { name: "rate", type: "uint256" },
                   { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
                 ],
               },
             ],
@@ -986,6 +1005,7 @@ describe("TokenLockupPlansHandler tests", function () {
               cliff: timestamp + 1000n,
               rate: 1000n,
               period: 1n,
+              initialized: true,
             },
           },
         ]
