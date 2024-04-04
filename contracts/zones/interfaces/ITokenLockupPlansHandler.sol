@@ -13,7 +13,7 @@ interface ITokenLockupPlansHandler is ZoneInterface {
 
     struct CreatePlanParams {
         uint256 start;
-        uint256 cliff;
+        uint256 cliffOffsetTime;
         uint256 rate;
         uint256 period;
         bool initialized;
