@@ -21,7 +21,7 @@ const seaportAddress = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
  * @notice this example address is for sepolia
  * - change this when deploying to other chains
  */
-const timeLockAddress = "0x3B9007eD3106fEA9821A657f930995A2F9A20C97";
+const tokenLockupPlansAddress = "0xb49d0CD3D5290adb4aF1eBA7A6B90CdE8B9265ff";
 
 /**
  * @notice this is the address that controls server signatures
@@ -91,18 +91,18 @@ const main = async () => {
   });
 
   // deploy TokenLockupPlansHandler.sol
-  const timeLockHandler = await hre.viem.deployContract(
+  const tokenLockupPlansHandler = await hre.viem.deployContract(
     "TokenLockupPlansHandler",
-    [timeLockAddress, seaportAddress, zoneAggregator.address]
+    [tokenLockupPlansAddress, seaportAddress, zoneAggregator.address]
   );
-  console.log("TokenLockupPlansHandler: ", timeLockHandler.address);
+  console.log("TokenLockupPlansHandler: ", tokenLockupPlansHandler.address);
 
   // wait for deployment and verify
   await delay(30000);
   await hre.run("verify:verify", {
-    address: timeLockHandler.address,
+    address: tokenLockupPlansHandler.address,
     constructorArguments: [
-      timeLockAddress,
+      tokenLockupPlansAddress,
       seaportAddress,
       zoneAggregator.address,
     ],

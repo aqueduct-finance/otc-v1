@@ -21,7 +21,7 @@ describe("TokenLockupPlansHandler tests", function () {
 
     const lockupHandler = await hre.viem.deployContract(
       "TokenLockupPlansHandler",
-      [lf.lockup.address, sf.seaport.address]
+      [lf.lockup.address, sf.seaport.address, sf.seaport.address]
     );
 
     return {
