@@ -5,4 +5,5 @@ import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
 
 interface IZoneAggregator is ZoneInterface {
     error INVALID_ZONES();
+    error CALLER_NOT_SEAPORT();
 }

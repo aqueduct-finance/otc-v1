@@ -20,10 +20,16 @@ import {ITokenLockupPlansHandler} from "./interfaces/ITokenLockupPlansHandler.so
 contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
     ITokenLockupPlans public immutable tokenLockupPlans;
     address public immutable seaport;
+    address public immutable zoneAggregator;
 
-    constructor(address _tokenLockupPlans, address _seaport) {
+    constructor(
+        address _tokenLockupPlans,
+        address _seaport,
+        address _zoneAggregator
+    ) {
         tokenLockupPlans = ITokenLockupPlans(_tokenLockupPlans);
         seaport = _seaport;
+        zoneAggregator = _zoneAggregator;
     }
 
     /**
@@ -35,7 +41,7 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         ZoneParameters calldata zoneParameters
     ) external returns (bytes4 validOrderMagicValue) {
         // only allowed to be called by seaport
-        if (msg.sender != seaport) {
+        if (msg.sender != seaport && msg.sender != zoneAggregator) {
             revert CALLER_NOT_SEAPORT();
         }
 

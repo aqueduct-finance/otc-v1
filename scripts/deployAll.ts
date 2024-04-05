@@ -78,20 +78,22 @@ const main = async () => {
   });
 
   // deploy ZoneAggregator.sol
-  const zoneAggregator = await hre.viem.deployContract("ZoneAggregator");
+  const zoneAggregator = await hre.viem.deployContract("ZoneAggregator", [
+    seaportAddress,
+  ]);
   console.log("ZoneAggregator: ", zoneAggregator.address);
 
   // wait for deployment and verify
   await delay(30000);
   await hre.run("verify:verify", {
     address: zoneAggregator.address,
-    constructorArguments: [],
+    constructorArguments: [seaportAddress],
   });
 
   // deploy TokenLockupPlansHandler.sol
   const timeLockHandler = await hre.viem.deployContract(
     "TokenLockupPlansHandler",
-    [timeLockAddress, seaportAddress]
+    [timeLockAddress, seaportAddress, zoneAggregator.address]
   );
   console.log("TokenLockupPlansHandler: ", timeLockHandler.address);
 
@@ -99,7 +101,11 @@ const main = async () => {
   await delay(30000);
   await hre.run("verify:verify", {
     address: timeLockHandler.address,
-    constructorArguments: [timeLockAddress, seaportAddress],
+    constructorArguments: [
+      timeLockAddress,
+      seaportAddress,
+      zoneAggregator.address,
+    ],
   });
 };
 
