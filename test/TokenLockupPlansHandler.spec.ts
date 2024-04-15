@@ -907,7 +907,7 @@ describe("TokenLockupPlansHandler tests", function () {
       // custom lockupHandler so we can call validateOrder directlry
       const lockupHandler = await hre.viem.deployContract(
         "TokenLockupPlansHandler",
-        [lockup.address, alice.account.address]
+        [lockup.address, alice.account.address, alice.account.address]
       );
 
       // amounts
