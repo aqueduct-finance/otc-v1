@@ -72,8 +72,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       ).write.approve([seaportAddress, wethTradeamount]);
 
       // fill caps
-      const bobFillCap = wethTradeamount;
-      const charlieFillCap = wethTradeamount;
+      const bobFillCap = usdcTradeAmount;
+      const charlieFillCap = usdcTradeAmount;
 
       // alice computes the merkle root
       // leaf nodes are just bob and charlie, so the root is the hash of those two
@@ -255,16 +255,33 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
 
       // charlie tries to fill the order
-      const necessaryHashes2 = encodeAbiParameters(
-        [{ type: "bytes32[]", name: "extraData" }],
-        [[hashBob]]
+      const necessaryHashes2 = [hashBob];
+      const encodedExtraData2 = encodeAbiParameters(
+        [
+          {
+            name: "RestrictBySignatureV2ExtraData",
+            type: "tuple",
+            components: [
+              { name: "fillCap", type: "uint256" },
+              { name: "nodes", type: "bytes32[]" },
+              { name: "signature", type: "bytes" },
+            ],
+          },
+        ],
+        [
+          {
+            fillCap: charlieFillCap,
+            nodes: necessaryHashes2,
+            signature: rootSignature,
+          },
+        ]
       );
       const advancedOrder2 = {
         parameters: orderParameters,
         numerator: wethTradeamount,
         denominator: wethTradeamount,
         signature: signature,
-        extraData: necessaryHashes2,
+        extraData: encodedExtraData2,
       };
       await expect(
         (
@@ -323,9 +340,9 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       ).write.approve([seaportAddress, wethTradeAmount]);
 
       // fill caps
-      const bobFillCap = wethTradeAmount;
-      const charlieFillCap = wethTradeAmount;
-      const danFillCap = wethTradeAmount;
+      const bobFillCap = usdcTradeAmount;
+      const charlieFillCap = usdcTradeAmount;
+      const danFillCap = usdcTradeAmount;
 
       /*
         alice computes the merkle root
@@ -647,6 +664,513 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       ).to.be.rejectedWith(
         "VM Exception while processing transaction: reverted with an unrecognized custom error"
       );
+    });
+
+    /*
+        Enforce fill caps:
+        - bob: 40%
+        - charlie: 60%
+    */
+    it("multiple recipients, partial fills, 40/60 fill caps", async function () {
+      const {
+        alice,
+        bob,
+        charlie,
+        dan,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
+        startingWethBalance,
+        restrictToAddressesZone,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob and charlie can fill the trade
+      // alice, bob, and charlie approve seaport contract
+      await (
+        await getUsdc(alice)
+      ).write.approve([seaportAddress, usdcTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+      await (
+        await getWeth(charlie)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // fill caps
+      const bobFillCap = (usdcTradeAmount * 4n) / 10n;
+      const charlieFillCap = (usdcTradeAmount * 6n) / 10n;
+
+      // alice computes the merkle root
+      // leaf nodes are just bob and charlie, so the root is the hash of those two
+      const hashBob = keccak256(encodeNode(bob.account.address, bobFillCap));
+      const hashCharlie = keccak256(
+        encodeNode(charlie.account.address, charlieFillCap)
+      );
+      const concatenatedAddresses =
+        hashBob < hashCharlie
+          ? hashBob + hashCharlie.slice(2)
+          : hashCharlie + hashBob.slice(2);
+      const merkleRoot = keccak256(concatenatedAddresses as `0x${string}`);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: restrictToAddressesZone.address,
+
+        // this is what the trader is giving
+        offer: [
+          {
+            itemType: 1, // 1 == erc20
+            token: usdc.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
+        ],
+        orderType: 3, // partial restricted
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+
+        zoneHash: zeroHash,
+
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+
+      // alice signs the merkle root and order hash
+      const sigDomainData = {
+        name: await restrictToAddressesZone.read._NAME(),
+        version: await restrictToAddressesZone.read._VERSION(),
+        chainId: 31337,
+        verifyingContract: restrictToAddressesZone.address,
+      };
+      const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const rootSignature = await alice.signTypedData({
+        domain: sigDomainData,
+        types: restrictBySignatureV2SignedParams,
+        primaryType: "RestrictBySignatureV2SignedParams",
+        message: {
+          orderHash,
+          merkleRoot,
+        },
+      });
+
+      // bob finds the hashes necessary to compute the merkle root from the hash of his address
+      // in this case, just the hash of charlie's address
+      // NOTE: for sake of privacy, alice can provide the merkle tree to bob, without necessarily revealing the underlying addresses
+      const necessaryHashes = [hashCharlie];
+      const encodedExtraData = encodeAbiParameters(
+        [
+          {
+            name: "RestrictBySignatureV2ExtraData",
+            type: "tuple",
+            components: [
+              { name: "fillCap", type: "uint256" },
+              { name: "nodes", type: "bytes32[]" },
+              { name: "signature", type: "bytes" },
+            ],
+          },
+        ],
+        [
+          {
+            fillCap: bobFillCap,
+            nodes: necessaryHashes,
+            signature: rootSignature,
+          },
+        ]
+      );
+
+      // bob tries to fill more than 40%
+      const badOrder = {
+        parameters: orderParameters,
+        numerator: (wethTradeamount * 5n) / 10n, // fill 50%
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData,
+      };
+      await expect(
+        (
+          await getSeaport(bob)
+        ).write.fulfillAdvancedOrder([
+          badOrder,
+          [],
+          zeroHash,
+          bob.account.address,
+        ])
+      ).to.be.rejectedWith("FILL_CAP_EXCEEDED");
+
+      // construct advanced order
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: (wethTradeamount * 4n) / 10n, // fill 40%
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData,
+      };
+
+      // bob fills the first 40%
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(
+        (wethTradeamount * 4n) / 10n
+      );
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        (usdcTradeAmount * 6n) / 10n
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(
+        (usdcTradeAmount * 4n) / 10n
+      );
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        (wethTradeamount * 6n) / 10n
+      );
+
+      // charlie fills the remaining 60%
+      const necessaryHashes2 = [hashBob];
+      const encodedExtraData2 = encodeAbiParameters(
+        [
+          {
+            name: "RestrictBySignatureV2ExtraData",
+            type: "tuple",
+            components: [
+              { name: "fillCap", type: "uint256" },
+              { name: "nodes", type: "bytes32[]" },
+              { name: "signature", type: "bytes" },
+            ],
+          },
+        ],
+        [
+          {
+            fillCap: charlieFillCap,
+            nodes: necessaryHashes2,
+            signature: rootSignature,
+          },
+        ]
+      );
+      const advancedOrder2 = {
+        parameters: orderParameters,
+        numerator: wethTradeamount, // fill the rest
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData2,
+      };
+      await (
+        await getSeaport(charlie)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder2,
+        [],
+        zeroHash,
+        charlie.account.address,
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(
+        wethTradeamount
+      );
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([charlie.account.address])).to.eq(
+        (usdcTradeAmount * 6n) / 10n
+      );
+      expect(await weth.read.balanceOf([charlie.account.address])).to.eq(
+        (wethTradeamount * 4n) / 10n
+      );
+    });
+
+    /*
+        User fills multiple times, check that zone stores prior fill amounts correctly
+    */
+    it("multiple partial fills, goes over fill cap", async function () {
+      const {
+        alice,
+        bob,
+        charlie,
+        dan,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
+        startingWethBalance,
+        restrictToAddressesZone,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob and charlie can fill the trade
+      // alice, bob, and charlie approve seaport contract
+      await (
+        await getUsdc(alice)
+      ).write.approve([seaportAddress, usdcTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+      await (
+        await getWeth(charlie)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // fill caps
+      const bobFillCap = (usdcTradeAmount * 4n) / 10n;
+      const charlieFillCap = (usdcTradeAmount * 6n) / 10n;
+
+      // alice computes the merkle root
+      // leaf nodes are just bob and charlie, so the root is the hash of those two
+      const hashBob = keccak256(encodeNode(bob.account.address, bobFillCap));
+      const hashCharlie = keccak256(
+        encodeNode(charlie.account.address, charlieFillCap)
+      );
+      const concatenatedAddresses =
+        hashBob < hashCharlie
+          ? hashBob + hashCharlie.slice(2)
+          : hashCharlie + hashBob.slice(2);
+      const merkleRoot = keccak256(concatenatedAddresses as `0x${string}`);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: restrictToAddressesZone.address,
+
+        // this is what the trader is giving
+        offer: [
+          {
+            itemType: 1, // 1 == erc20
+            token: usdc.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
+        ],
+        orderType: 3, // partial restricted
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+
+        zoneHash: zeroHash,
+
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+
+      // alice signs the merkle root and order hash
+      const sigDomainData = {
+        name: await restrictToAddressesZone.read._NAME(),
+        version: await restrictToAddressesZone.read._VERSION(),
+        chainId: 31337,
+        verifyingContract: restrictToAddressesZone.address,
+      };
+      const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const rootSignature = await alice.signTypedData({
+        domain: sigDomainData,
+        types: restrictBySignatureV2SignedParams,
+        primaryType: "RestrictBySignatureV2SignedParams",
+        message: {
+          orderHash,
+          merkleRoot,
+        },
+      });
+
+      // bob finds the hashes necessary to compute the merkle root from the hash of his address
+      // in this case, just the hash of charlie's address
+      // NOTE: for sake of privacy, alice can provide the merkle tree to bob, without necessarily revealing the underlying addresses
+      const necessaryHashes = [hashCharlie];
+      const encodedExtraData = encodeAbiParameters(
+        [
+          {
+            name: "RestrictBySignatureV2ExtraData",
+            type: "tuple",
+            components: [
+              { name: "fillCap", type: "uint256" },
+              { name: "nodes", type: "bytes32[]" },
+              { name: "signature", type: "bytes" },
+            ],
+          },
+        ],
+        [
+          {
+            fillCap: bobFillCap,
+            nodes: necessaryHashes,
+            signature: rootSignature,
+          },
+        ]
+      );
+
+      // construct advanced order
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: (wethTradeamount * 3n) / 10n, // fill 30%
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData,
+      };
+
+      // bob fills the first 30%
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(
+        (wethTradeamount * 3n) / 10n
+      );
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        (usdcTradeAmount * 7n) / 10n
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(
+        (usdcTradeAmount * 3n) / 10n
+      );
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        (wethTradeamount * 7n) / 10n
+      );
+
+      // bob tries to fill another 20%
+      // this puts him over his fill cap
+      const badOrder = {
+        parameters: orderParameters,
+        numerator: (wethTradeamount * 2n) / 10n,
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData,
+      };
+      await expect(
+        (
+          await getSeaport(bob)
+        ).write.fulfillAdvancedOrder([
+          badOrder,
+          [],
+          zeroHash,
+          bob.account.address,
+        ])
+      ).to.be.rejectedWith("FILL_CAP_EXCEEDED");
     });
   });
 });

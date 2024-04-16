@@ -23,6 +23,10 @@ import {OrderComponents} from "seaport-types/src/lib/ConsiderationStructs.sol";
  */
 contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
 
+    // keep track of fill amounts to enforce caps
+    // orderHash => userAddress => fillAmount
+    mapping(bytes32 => mapping(address => uint256)) public fillAmount;
+
     // constants
     string public constant _NAME = "RestrictBySignatureV2";
     string public constant _VERSION = "1.0";
@@ -74,7 +78,7 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
      */
     function validateOrder(
         ZoneParameters calldata zoneParameters
-    ) external view returns (
+    ) external returns (
         bytes4 validOrderMagicValue
     ) {
         RestrictBySignatureV2ExtraData memory decodedExtraData =  abi.decode(zoneParameters.extraData, (RestrictBySignatureV2ExtraData));
@@ -98,6 +102,13 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
 
         if (recoveredSigner != zoneParameters.offerer) {
             revert ORDER_RESTRICTED();
+        }
+
+        // enforce fill cap
+        // just enforce on first offer item
+        fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] += zoneParameters.offer[0].amount;
+        if (fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] > decodedExtraData.fillCap) {
+            revert FILL_CAP_EXCEEDED();
         }
 
         validOrderMagicValue = ZoneInterface.validateOrder.selector;
