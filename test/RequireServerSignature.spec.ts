@@ -18,7 +18,7 @@ describe("RequireServerSignature Zone tests", function () {
 
         // set erin as the server owner
         const server = af.erin;
-        const requireServerSignatureZone = await hre.viem.deployContract('RequireServerSignature', [server.account.address, 31337]);
+        const requireServerSignatureZone = await hre.viem.deployContract('RequireServerSignature', [server.account.address, 31337n]);
         async function getRequireServerSignatureZone(client: typeof af.alice) {
             return await hre.viem.getContractAt(
                 "IRequireServerSignature",
