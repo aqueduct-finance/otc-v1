@@ -81,6 +81,7 @@ contract RequireServerSignature is IRequireServerSignature {
     ///////////////////////////////////////////////////////////
 
     struct AuthParams {
+        bytes32 orderHash;
         address fulfiller;
         uint256 deadline;
     }
@@ -115,6 +116,7 @@ contract RequireServerSignature is IRequireServerSignature {
         if (recoveredSigner != owner) { revert INVALID_SERVER_SIGNATURE(); }
 
         // check auth params
+        if (zoneParameters.orderHash != serverToken.authParams.orderHash) { revert INCORRECT_ORDER(); }
         if (zoneParameters.fulfiller != serverToken.authParams.fulfiller) { revert INCORRECT_FULFILLER(); }
         if (block.timestamp > serverToken.authParams.deadline) { revert DEADLINE_EXCEEDED(); }
 
