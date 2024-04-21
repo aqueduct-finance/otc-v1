@@ -56,6 +56,7 @@ contract RequireServerSignature is IRequireServerSignature {
         _AUTH_PARAMS_TYPEHASH = keccak256(
             abi.encodePacked(
                 "AuthParams(",
+                "bytes32 orderHash,",
                 "uint256 fulfiller,",
                 "uint256 deadline",
                 ")"
@@ -108,7 +109,12 @@ contract RequireServerSignature is IRequireServerSignature {
 
         // check validity of server signature
         bytes32 domainSeparator = _domainSeparator();
-        bytes32 authParamsHash = keccak256(abi.encodePacked(_AUTH_PARAMS_TYPEHASH, uint256(uint160(serverToken.authParams.fulfiller)), serverToken.authParams.deadline));
+        bytes32 authParamsHash = keccak256(abi.encodePacked(
+            _AUTH_PARAMS_TYPEHASH, 
+            serverToken.authParams.orderHash, 
+            uint256(uint160(serverToken.authParams.fulfiller)), 
+            serverToken.authParams.deadline
+        ));
         bytes32 digest = keccak256(
             abi.encodePacked(uint16(0x1901), domainSeparator, authParamsHash)
         );
