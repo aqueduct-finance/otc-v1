@@ -9,6 +9,7 @@ import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
 import accountsFixture from "./fixtures/accountsFixture";
 import restrictBySignatureV2SignedParams from "./utils/restrictBySignatureV2SignedParams";
+import serverSignatureTypeV2 from "./utils/serverSignatureTypeV2";
 
 const encodeNode = (address: `0x${string}`, cap: bigint) => {
   return encodePacked(["address", "uint256"], [address, cap]);
@@ -19,15 +20,18 @@ describe("RestrictBySignatureV2 Zone tests", function () {
     const sf = await seaportFixture();
     const af = await accountsFixture();
 
+    // set erin as the server owner
+    const server = af.erin;
     const restrictToAddressesZone = await hre.viem.deployContract(
       "RestrictBySignatureV2",
-      [31337n]
+      [server.account.address, 31337n]
     );
 
     return {
       ...sf,
       ...af,
       restrictToAddressesZone,
+      server,
     };
   }
 
@@ -52,6 +56,7 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         aliceStartingUsdcBalance,
         startingWethBalance,
         restrictToAddressesZone,
+        server,
       } = await loadFixture(fixture);
 
       // amounts
@@ -170,8 +175,29 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         message: {
           orderHash,
           merkleRoot,
+          requireServerSignature: 1,
         },
       });
+
+      // alice gets server token
+      // server is signing off on the restriction set
+      const deadline = timestamp + 600n;
+      const authParams = {
+        orderHash: orderHash,
+        fulfiller: bob.account.address,
+        fillCap: bobFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams,
+      });
+      const serverToken = {
+        deadline: deadline,
+        signature: serverSignature,
+      };
 
       // bob finds the hashes necessary to compute the merkle root from the hash of his address
       // in this case, just the hash of charlie's address
@@ -186,6 +212,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -194,6 +229,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken,
           },
         ]
       );
@@ -265,6 +302,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -273,6 +319,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: charlieFillCap,
             nodes: necessaryHashes2,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken,
           },
         ]
       );
@@ -317,6 +365,7 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         aliceStartingUsdcBalance,
         startingWethBalance,
         restrictToAddressesZone,
+        server,
       } = await loadFixture(fixture);
 
       // amounts
@@ -447,8 +496,29 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         message: {
           orderHash,
           merkleRoot,
+          requireServerSignature: 1,
         },
       });
+
+      // bob gets server token
+      // server is signing off on the restriction set
+      const deadline = timestamp + 600n;
+      const authParams = {
+        orderHash: orderHash,
+        fulfiller: bob.account.address,
+        fillCap: bobFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams,
+      });
+      const serverToken = {
+        deadline: deadline,
+        signature: serverSignature,
+      };
 
       /*
         bob finds the hashes necessary to compute the merkle root from the hash of his address
@@ -471,6 +541,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -479,6 +558,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken,
           },
         ]
       );
@@ -549,6 +630,25 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         startingWethBalance
       );
 
+      // charlie gets server token
+      // server is signing off on the restriction set
+      const authParams2 = {
+        orderHash: orderHash,
+        fulfiller: charlie.account.address,
+        fillCap: charlieFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature2 = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams2,
+      });
+      const serverToken2 = {
+        deadline: deadline,
+        signature: serverSignature2,
+      };
+
       /*
         charlie finds the hashes necessary to compute the merkle root from the hash of his address
 
@@ -570,6 +670,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -578,6 +687,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: charlieFillCap,
             nodes: necessaryHashes2,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken2,
           },
         ]
       );
@@ -611,6 +722,25 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         wethTradeAmount / 2n
       );
 
+      // dan gets server token
+      // server is signing off on the restriction set
+      const authParams3 = {
+        orderHash: orderHash,
+        fulfiller: dan.account.address,
+        fillCap: danFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature3 = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams3,
+      });
+      const serverToken3 = {
+        deadline: deadline,
+        signature: serverSignature3,
+      };
+
       /*
         dan finds the hashes necessary to compute the merkle root from the hash of his address
 
@@ -632,6 +762,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -640,6 +779,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: danFillCap,
             nodes: necessaryHashes3,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken3,
           },
         ]
       );
@@ -686,6 +827,7 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         aliceStartingUsdcBalance,
         startingWethBalance,
         restrictToAddressesZone,
+        server,
       } = await loadFixture(fixture);
 
       // amounts
@@ -804,8 +946,29 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         message: {
           orderHash,
           merkleRoot,
+          requireServerSignature: 1,
         },
       });
+
+      // bob gets server token
+      // server is signing off on the restriction set
+      const deadline = timestamp + 600n;
+      const authParams = {
+        orderHash: orderHash,
+        fulfiller: bob.account.address,
+        fillCap: bobFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams,
+      });
+      const serverToken = {
+        deadline: deadline,
+        signature: serverSignature,
+      };
 
       // bob finds the hashes necessary to compute the merkle root from the hash of his address
       // in this case, just the hash of charlie's address
@@ -820,6 +983,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -828,6 +1000,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken,
           },
         ]
       );
@@ -894,6 +1068,25 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         (wethTradeamount * 6n) / 10n
       );
 
+      // charlie gets server token
+      // server is signing off on the restriction set
+      const authParams2 = {
+        orderHash: orderHash,
+        fulfiller: charlie.account.address,
+        fillCap: charlieFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature2 = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams2,
+      });
+      const serverToken2 = {
+        deadline: deadline,
+        signature: serverSignature2,
+      };
+
       // charlie fills the remaining 60%
       const necessaryHashes2 = [hashBob];
       const encodedExtraData2 = encodeAbiParameters(
@@ -905,6 +1098,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -913,6 +1115,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: charlieFillCap,
             nodes: necessaryHashes2,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken2,
           },
         ]
       );
@@ -963,6 +1167,7 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         aliceStartingUsdcBalance,
         startingWethBalance,
         restrictToAddressesZone,
+        server,
       } = await loadFixture(fixture);
 
       // amounts
@@ -1081,8 +1286,29 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         message: {
           orderHash,
           merkleRoot,
+          requireServerSignature: 1,
         },
       });
+
+      // bob gets server token
+      // server is signing off on the restriction set
+      const deadline = timestamp + 600n;
+      const authParams = {
+        orderHash: orderHash,
+        fulfiller: bob.account.address,
+        fillCap: bobFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams,
+      });
+      const serverToken = {
+        deadline: deadline,
+        signature: serverSignature,
+      };
 
       // bob finds the hashes necessary to compute the merkle root from the hash of his address
       // in this case, just the hash of charlie's address
@@ -1097,6 +1323,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
               { name: "fillCap", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                    { name: "deadline", type: "uint256" },
+                    { name: "signature", type: "bytes" },
+                ],
+              },
             ],
           },
         ],
@@ -1105,6 +1340,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             fillCap: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
+            requireServerSignature: true,
+            serverToken: serverToken,
           },
         ]
       );

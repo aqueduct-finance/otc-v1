@@ -34,12 +34,17 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
     // immutables
     bytes32 internal immutable _EIP_712_DOMAIN_TYPEHASH;
     bytes32 internal immutable _SIGNED_PARAMS_TYPEHASH;
+    bytes32 internal immutable _AUTH_PARAMS_TYPEHASH;
     bytes32 internal immutable _NAME_HASH;
     bytes32 internal immutable _VERSION_HASH;
     uint256 internal immutable _CHAIN_ID;
     bytes32 internal immutable _DOMAIN_SEPARATOR;
 
-    constructor(uint256 _chainId) {
+    // state
+    address private owner;
+
+    constructor(address _owner, uint256 _chainId) {
+        owner = _owner;
         _CHAIN_ID = _chainId;
 
         // derive domain separator and cache values
@@ -57,13 +62,32 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
             abi.encodePacked(
                 "RestrictBySignatureV2SignedParams(",
                 "bytes32 orderHash,",
-                "bytes32 merkleRoot",
+                "bytes32 merkleRoot,",
+                "uint256 requireServerSignature",
+                ")"
+            )
+        );
+        _AUTH_PARAMS_TYPEHASH = keccak256(
+            abi.encodePacked(
+                "RestrictBySignatureV2AuthParams(",
+                "bytes32 orderHash,",
+                "uint256 fulfiller,",
+                "uint256 fillCap,",
+                "uint256 deadline",
                 ")"
             )
         );
         _NAME_HASH = keccak256(bytes(_NAME));
         _VERSION_HASH = keccak256(bytes(_VERSION));
         _DOMAIN_SEPARATOR = _deriveDomainSeparator();
+    }
+
+    function setOwner(
+        address _owner
+    ) external {
+        if (msg.sender != owner) { revert ONLY_OWNER(); }
+
+        owner = _owner;
     }
 
     ///////////////////////////////////////////////////////////
@@ -85,23 +109,27 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
         bytes32 addressHash = keccak256(abi.encodePacked(zoneParameters.fulfiller, decodedExtraData.fillCap));
         bytes32 merkleRoot = computeMerkleRoot(addressHash, decodedExtraData.nodes);
 
-        // decode signature
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        (r, s) = abi.decode(decodedExtraData.signature, (bytes32, bytes32));
-        v = uint8(decodedExtraData.signature[64]);
+        // check user signature
+        bytes32 signedParamsHash = keccak256(abi.encodePacked(
+            _SIGNED_PARAMS_TYPEHASH, 
+            zoneParameters.orderHash, 
+            merkleRoot, 
+            uint256(decodedExtraData.requireServerSignature ? 1 : 0)
+        ));
+        checkSignature(decodedExtraData.signature, signedParamsHash, zoneParameters.offerer);
 
-        // check validity of offerer's signature
-        bytes32 domainSeparator = _domainSeparator();
-        bytes32 authParamsHash = keccak256(abi.encodePacked(_SIGNED_PARAMS_TYPEHASH, zoneParameters.orderHash, merkleRoot));
-        bytes32 digest = keccak256(
-            abi.encodePacked(uint16(0x1901), domainSeparator, authParamsHash)
-        );
-        address recoveredSigner = ecrecover(digest, v, r, s);
+        // enforce server signature
+        if (decodedExtraData.requireServerSignature) {
+            bytes32 authParamsHash = keccak256(abi.encodePacked(
+                _AUTH_PARAMS_TYPEHASH, 
+                zoneParameters.orderHash, 
+                uint256(uint160(zoneParameters.fulfiller)), 
+                decodedExtraData.fillCap, 
+                decodedExtraData.serverToken.deadline
+            ));
+            checkSignature(decodedExtraData.serverToken.signature, authParamsHash, owner);
 
-        if (recoveredSigner != zoneParameters.offerer) {
-            revert ORDER_RESTRICTED();
+            if (block.timestamp > decodedExtraData.serverToken.deadline) { revert DEADLINE_EXCEEDED(); }
         }
 
         // enforce fill cap
@@ -112,6 +140,52 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
         }
 
         validOrderMagicValue = ZoneInterface.validateOrder.selector;
+    }
+
+    function getSeaportMetadata() external view returns (
+        string memory name, 
+        Schema[] memory schemas
+    ) {}
+
+    function supportsInterface(
+        bytes4 //interfaceId
+    ) external pure returns (
+        bool
+    ) {
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////
+    ///                                                     ///
+    ///                   Internal Helpers                  ///
+    ///                                                     ///
+    ///////////////////////////////////////////////////////////
+
+    /**
+     * @dev Checks validity of a EIP-712 signature
+     */
+    function checkSignature(
+        bytes memory signature,
+        bytes32 paramsHash,
+        address expectedSigner
+    ) internal view {
+        // decode signature
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        (r, s) = abi.decode(signature, (bytes32, bytes32));
+        v = uint8(signature[64]);
+
+        // check validity of offerer's signature
+        bytes32 domainSeparator = _domainSeparator();
+        bytes32 digest = keccak256(
+            abi.encodePacked(uint16(0x1901), domainSeparator, paramsHash)
+        );
+        address recoveredSigner = ecrecover(digest, v, r, s);
+
+        if (recoveredSigner != expectedSigner) {
+            revert ORDER_RESTRICTED();
+        }
     }
 
     /**
@@ -142,19 +216,6 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
                 ++i;
             }
         }
-    }
-
-    function getSeaportMetadata() external view returns (
-        string memory name, 
-        Schema[] memory schemas
-    ) {}
-
-    function supportsInterface(
-        bytes4 //interfaceId
-    ) external pure returns (
-        bool
-    ) {
-        return true;
     }
 
     ///////////////////////////////////////////////////////////
