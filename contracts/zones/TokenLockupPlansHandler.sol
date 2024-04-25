@@ -22,6 +22,8 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
     address public immutable seaport;
 
     constructor(address _tokenLockupPlans, address _seaport) {
+        require(_tokenLockupPlans != address(0));
+        require(_seaport != address(0));
         tokenLockupPlans = ITokenLockupPlans(_tokenLockupPlans);
         seaport = _seaport;
     }

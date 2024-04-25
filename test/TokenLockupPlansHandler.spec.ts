@@ -2364,5 +2364,32 @@ describe("TokenLockupPlansHandler tests", function () {
         ).to.be.rejectedWith("INSUFFICIENT_POST_BALANCE");
       });
     });
+
+    // name: F-2024-1506 - Missing Zero Address Validation - Info
+    describe("zero address checks in constructor", function () {
+      it("revert when provide zero address for lockup contract", async function () {
+        const { seaport } = await loadFixture(fixture);
+
+        // try to deploy
+        await expect(
+          hre.viem.deployContract("TokenLockupPlansHandler", [
+            zeroAddress,
+            seaport.address,
+          ])
+        ).to.be.rejectedWith("Transaction reverted without a reason string");
+      });
+
+      it("revert when provide zero address for seaport contract", async function () {
+        const { lockup } = await loadFixture(fixture);
+
+        // try to deploy
+        await expect(
+          hre.viem.deployContract("TokenLockupPlansHandler", [
+            lockup.address,
+            zeroAddress,
+          ])
+        ).to.be.rejectedWith("Transaction reverted without a reason string");
+      });
+    });
   });
 });
