@@ -2,13 +2,12 @@
 pragma solidity 0.8.20;
 
 import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
-import {ZoneParameters, Schema} from "seaport-types/src/lib/ConsiderationStructs.sol";
-import {ITokenLockupPlans} from "../misc/interfaces/ITokenLockupPlans.sol";
-import {SpentItem, ReceivedItem} from "seaport-types/src/lib/ConsiderationStructs.sol";
+import {ZoneParameters, Schema, SpentItem, ReceivedItem} from "seaport-types/src/lib/ConsiderationStructs.sol";
 import {ItemType} from "seaport-types/src/lib/ConsiderationEnums.sol";
 import {SafeERC20} from "../tokens/utils/SafeERC20.sol";
 import {IERC20} from "../tokens/interfaces/IERC20.sol";
 import {ITokenLockupPlansHandler} from "./interfaces/ITokenLockupPlansHandler.sol";
+import {ITokenLockupPlans} from "../misc/interfaces/ITokenLockupPlans.sol";
 
 /**
  * @title TokenLockupPlansHandler
