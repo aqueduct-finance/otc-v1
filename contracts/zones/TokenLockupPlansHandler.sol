@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
 import {ZoneParameters, Schema} from "seaport-types/src/lib/ConsiderationStructs.sol";
