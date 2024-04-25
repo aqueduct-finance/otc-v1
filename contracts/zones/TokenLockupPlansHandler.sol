@@ -113,8 +113,12 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         );
 
         // approve tokenLockupPlans contract to spend this token
-        IERC20(token).approve(address(tokenLockupPlans), amount);
-
+        SafeERC20.forceApprove(
+            IERC20(token),
+            address(tokenLockupPlans),
+            amount
+        );
+        
         // if user didn't specify start time, use block.timestamp
         if (createPlanParams.start == 0) {
             createPlanParams.start = block.timestamp;
