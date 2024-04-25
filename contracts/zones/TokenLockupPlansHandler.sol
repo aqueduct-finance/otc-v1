@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
-import {ZoneParameters, Schema} from "seaport-types/src/lib/ConsiderationStructs.sol";
-import {ITokenLockupPlans} from "../misc/interfaces/ITokenLockupPlans.sol";
-import {SpentItem, ReceivedItem} from "seaport-types/src/lib/ConsiderationStructs.sol";
+import {ZoneParameters, Schema, SpentItem, ReceivedItem} from "seaport-types/src/lib/ConsiderationStructs.sol";
 import {ItemType} from "seaport-types/src/lib/ConsiderationEnums.sol";
 import {SafeERC20} from "../tokens/utils/SafeERC20.sol";
 import {IERC20} from "../tokens/interfaces/IERC20.sol";
 import {ITokenLockupPlansHandler} from "./interfaces/ITokenLockupPlansHandler.sol";
+import {ITokenLockupPlans} from "../misc/interfaces/ITokenLockupPlans.sol";
 
 /**
  * @title TokenLockupPlansHandler
@@ -22,6 +21,8 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
     address public immutable seaport;
 
     constructor(address _tokenLockupPlans, address _seaport) {
+        require(_tokenLockupPlans != address(0));
+        require(_seaport != address(0));
         tokenLockupPlans = ITokenLockupPlans(_tokenLockupPlans);
         seaport = _seaport;
     }
@@ -105,7 +106,7 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         CreatePlanParams memory createPlanParams
     ) internal {
         // get tokens from user
-        SafeERC20.safeTransferFrom(
+        _transferTokens(
             IERC20(token),
             recipient,
             address(this),
@@ -113,8 +114,12 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
         );
 
         // approve tokenLockupPlans contract to spend this token
-        IERC20(token).approve(address(tokenLockupPlans), amount);
-
+        SafeERC20.forceApprove(
+            IERC20(token),
+            address(tokenLockupPlans),
+            amount
+        );
+        
         // if user didn't specify start time, use block.timestamp
         if (createPlanParams.start == 0) {
             createPlanParams.start = block.timestamp;
@@ -144,6 +149,31 @@ contract TokenLockupPlansHandler is ITokenLockupPlansHandler {
             rate,
             createPlanParams.period
         );
+    }
+
+    /**
+     * @dev internal function used for standard ERC20 transferFrom method
+     * @notice it contains a pre and post balance check
+     * @notice as well as a check on the msg.senders balance
+     * 
+     * @param token is the ERC20 being transferred
+     * @param from is the remitting address
+     * @param to is the location where they are being delivered
+     */
+    function _transferTokens(
+        IERC20 token,
+        address from,
+        address to,
+        uint256 amount
+    ) internal {
+        // check balance before transfer
+        uint256 priorBalance = token.balanceOf(address(to));
+        if (token.balanceOf(from) < amount) revert INSUFFICIENT_PRE_BALANCE();
+
+        // make transfer and check balance after
+        SafeERC20.safeTransferFrom(token, from, to, amount);
+        uint256 postBalance = token.balanceOf(address(to));
+        if (postBalance - priorBalance != amount) revert INSUFFICIENT_POST_BALANCE();
     }
 
     /**
