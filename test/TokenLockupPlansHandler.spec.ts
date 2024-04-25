@@ -13,6 +13,7 @@ import seaportFixture from "./fixtures/seaportFixture";
 import accountsFixture from "./fixtures/accountsFixture";
 import lockupFixture from "./fixtures/lockupFixture";
 import usdtFixture from "./fixtures/usdtFixture";
+import feeOnTransferTokenFixture from "./fixtures/feeOnTransferTokenFixture";
 
 describe("TokenLockupPlansHandler tests", function () {
   async function fixture() {
@@ -20,6 +21,7 @@ describe("TokenLockupPlansHandler tests", function () {
     const af = await accountsFixture();
     const lf = await lockupFixture();
     const uf = await usdtFixture();
+    const fF = await feeOnTransferTokenFixture();
 
     const lockupHandler = await hre.viem.deployContract(
       "TokenLockupPlansHandler",
@@ -31,6 +33,7 @@ describe("TokenLockupPlansHandler tests", function () {
       ...af,
       ...lf,
       ...uf,
+      ...fF,
       lockupHandler,
     };
   }
@@ -1967,6 +1970,398 @@ describe("TokenLockupPlansHandler tests", function () {
           usdtTradeAmount
         );
         expect(await weth.read.balanceOf([lockup.address])).to.eq(0n);
+      });
+    });
+
+    // name: F-2024-1504 - Fee-on-Transfer Token Handling Flaw - Medium
+    describe("check transfer amount correctly when using fee-on-transfer tokens", function () {
+      it("check for insufficient pre-transfer balance", async function () {
+        const {
+          alice,
+          bob,
+          seaport,
+          feeOnTransferToken,
+          weth,
+          getSeaport,
+          getFeeOnTransferToken,
+          getWeth,
+          aliceStartingFeeTokenBalance,
+          startingWethBalance,
+          lockupHandler,
+        } = await loadFixture(fixture);
+
+        // amounts
+        const timestamp = await getBlockTimestamp();
+        const feeTokenTradeAmount = parseUnits("1000", 6);
+        const wethTradeamount = parseUnits("1", 18);
+
+        // alice will designate that only bob can fill the trade
+        // alice and bob approve seaport contract
+        await (
+          await getFeeOnTransferToken(alice)
+        ).write.approve([seaportAddress, feeTokenTradeAmount]);
+        await (
+          await getWeth(bob)
+        ).write.approve([seaportAddress, wethTradeamount]);
+
+        // alice and bob also have to approve the lockup handler for the opposite token
+        // bc lockups are created atomically post-trade
+        await (
+          await getWeth(alice)
+        ).write.approve([lockupHandler.address, wethTradeamount]);
+        await (
+          await getFeeOnTransferToken(bob)
+        ).write.approve([lockupHandler.address, feeTokenTradeAmount]);
+
+        // construct order
+        const salt = generateSalt();
+        const encodedLockParams = encodeAbiParameters(
+          [
+            {
+              name: "LockParams",
+              type: "tuple",
+              components: [
+                {
+                  name: "offerLockupParams",
+                  type: "tuple",
+                  components: [
+                    { name: "start", type: "uint256" },
+                    { name: "cliffOffsetTime", type: "uint256" },
+                    { name: "endOffsetTime", type: "uint256" },
+                    { name: "period", type: "uint256" },
+                    { name: "initialized", type: "bool" },
+                  ],
+                },
+                {
+                  name: "considerationLockupParams",
+                  type: "tuple",
+                  components: [
+                    { name: "start", type: "uint256" },
+                    { name: "cliffOffsetTime", type: "uint256" },
+                    { name: "endOffsetTime", type: "uint256" },
+                    { name: "period", type: "uint256" },
+                    { name: "initialized", type: "bool" },
+                  ],
+                },
+              ],
+            },
+          ],
+          [
+            {
+              offerLockupParams: {
+                start: timestamp + 500n,
+                cliffOffsetTime: 500n,
+                endOffsetTime: 1000n,
+                period: 1n,
+                initialized: true,
+              },
+              // set everything to 0
+              considerationLockupParams: {
+                start: 0n,
+                cliffOffsetTime: 0n,
+                endOffsetTime: 0n,
+                period: 0n,
+                initialized: false,
+              },
+            },
+          ]
+        );
+        const hashedLockParams = keccak256(encodedLockParams);
+        const baseOrderParameters = {
+          offerer: alice.account.address,
+          zone: lockupHandler.address, // don't forget this
+
+          // this is what the trader is giving
+          offer: [
+            {
+              itemType: 1, // 1 == erc20
+              token: feeOnTransferToken.address,
+              identifierOrCriteria: 0n, // criteria not used for erc20s
+              startAmount: feeTokenTradeAmount,
+              endAmount: feeTokenTradeAmount,
+            },
+          ],
+
+          // what the trader expects to receive
+          consideration: [
+            {
+              itemType: 1,
+              token: weth.address,
+              identifierOrCriteria: 0n,
+              startAmount: wethTradeamount,
+              endAmount: wethTradeamount,
+              recipient: alice.account.address,
+            },
+          ],
+          orderType: 2, // full restricted
+          startTime: timestamp,
+          endTime: timestamp + 86400n, // 24 hours from now
+          zoneHash: hashedLockParams,
+          salt: salt,
+          conduitKey: zeroHash, // not using a conduit
+        };
+        const orderParameters = {
+          ...baseOrderParameters,
+          totalOriginalConsiderationItems: 1n,
+        };
+
+        // get contract info
+        const info = await seaport.read.information();
+        const version = info[0];
+        const name = await seaport.read.name();
+        const domainData = {
+          name: name,
+          version: version,
+
+          // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+          chainId: 31337,
+          verifyingContract: seaportAddress,
+        };
+        const counter = await seaport.read.getCounter([alice.account.address]);
+        const orderComponents = {
+          ...baseOrderParameters,
+          counter: counter,
+        };
+
+        // alice signs the order
+        const signature = await alice.signTypedData({
+          domain: domainData,
+          types: orderType,
+          primaryType: "OrderComponents",
+          message: orderComponents,
+        });
+
+        // construct advanced order
+        const advancedOrder = {
+          parameters: orderParameters,
+          numerator: wethTradeamount,
+          denominator: wethTradeamount,
+          signature: signature,
+          extraData: encodedLockParams,
+        };
+
+        // check for expected starting balances
+        expect(
+          await feeOnTransferToken.read.balanceOf([alice.account.address])
+        ).to.eq(aliceStartingFeeTokenBalance);
+        expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+        expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+          startingWethBalance
+        );
+        expect(
+          await feeOnTransferToken.read.balanceOf([bob.account.address])
+        ).to.eq(0n);
+
+        // expect revert
+        // because bob's has no balance of the fee-on-transfer token,
+        // the lockup amount will be insufficient because a fee was taken out
+        await expect(
+          (
+            await getSeaport(bob)
+          ).write.fulfillAdvancedOrder([
+            advancedOrder,
+            [],
+            zeroHash,
+            bob.account.address,
+          ])
+        ).to.be.rejectedWith("INSUFFICIENT_PRE_BALANCE");
+      });
+
+      it("check for insufficient post-transfer balance", async function () {
+        const {
+          alice,
+          bob,
+          seaport,
+          feeOnTransferToken,
+          weth,
+          getSeaport,
+          getFeeOnTransferToken,
+          getWeth,
+          aliceStartingFeeTokenBalance,
+          startingWethBalance,
+          lockupHandler,
+        } = await loadFixture(fixture);
+
+        // amounts
+        const timestamp = await getBlockTimestamp();
+        const feeTokenTradeAmount = parseUnits("500", 6);
+        const wethTradeamount = parseUnits("1", 18);
+
+        // give bob some of the fee-on-transfer token so that he has an existing balance
+        await (
+          await getFeeOnTransferToken(alice)
+        ).write.transfer([bob.account.address, feeTokenTradeAmount]);
+
+        // alice will designate that only bob can fill the trade
+        // alice and bob approve seaport contract
+        await (
+          await getFeeOnTransferToken(alice)
+        ).write.approve([seaportAddress, feeTokenTradeAmount]);
+        await (
+          await getWeth(bob)
+        ).write.approve([seaportAddress, wethTradeamount]);
+
+        // alice and bob also have to approve the lockup handler for the opposite token
+        // bc lockups are created atomically post-trade
+        await (
+          await getWeth(alice)
+        ).write.approve([lockupHandler.address, wethTradeamount]);
+        await (
+          await getFeeOnTransferToken(bob)
+        ).write.approve([lockupHandler.address, feeTokenTradeAmount]);
+
+        // construct order
+        const salt = generateSalt();
+        const encodedLockParams = encodeAbiParameters(
+          [
+            {
+              name: "LockParams",
+              type: "tuple",
+              components: [
+                {
+                  name: "offerLockupParams",
+                  type: "tuple",
+                  components: [
+                    { name: "start", type: "uint256" },
+                    { name: "cliffOffsetTime", type: "uint256" },
+                    { name: "endOffsetTime", type: "uint256" },
+                    { name: "period", type: "uint256" },
+                    { name: "initialized", type: "bool" },
+                  ],
+                },
+                {
+                  name: "considerationLockupParams",
+                  type: "tuple",
+                  components: [
+                    { name: "start", type: "uint256" },
+                    { name: "cliffOffsetTime", type: "uint256" },
+                    { name: "endOffsetTime", type: "uint256" },
+                    { name: "period", type: "uint256" },
+                    { name: "initialized", type: "bool" },
+                  ],
+                },
+              ],
+            },
+          ],
+          [
+            {
+              offerLockupParams: {
+                start: timestamp + 500n,
+                cliffOffsetTime: 500n,
+                endOffsetTime: 1000n,
+                period: 1n,
+                initialized: true,
+              },
+              // set everything to 0
+              considerationLockupParams: {
+                start: 0n,
+                cliffOffsetTime: 0n,
+                endOffsetTime: 0n,
+                period: 0n,
+                initialized: false,
+              },
+            },
+          ]
+        );
+        const hashedLockParams = keccak256(encodedLockParams);
+        const baseOrderParameters = {
+          offerer: alice.account.address,
+          zone: lockupHandler.address, // don't forget this
+
+          // this is what the trader is giving
+          offer: [
+            {
+              itemType: 1, // 1 == erc20
+              token: feeOnTransferToken.address,
+              identifierOrCriteria: 0n, // criteria not used for erc20s
+              startAmount: feeTokenTradeAmount,
+              endAmount: feeTokenTradeAmount,
+            },
+          ],
+
+          // what the trader expects to receive
+          consideration: [
+            {
+              itemType: 1,
+              token: weth.address,
+              identifierOrCriteria: 0n,
+              startAmount: wethTradeamount,
+              endAmount: wethTradeamount,
+              recipient: alice.account.address,
+            },
+          ],
+          orderType: 2, // full restricted
+          startTime: timestamp,
+          endTime: timestamp + 86400n, // 24 hours from now
+          zoneHash: hashedLockParams,
+          salt: salt,
+          conduitKey: zeroHash, // not using a conduit
+        };
+        const orderParameters = {
+          ...baseOrderParameters,
+          totalOriginalConsiderationItems: 1n,
+        };
+
+        // get contract info
+        const info = await seaport.read.information();
+        const version = info[0];
+        const name = await seaport.read.name();
+        const domainData = {
+          name: name,
+          version: version,
+
+          // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+          chainId: 31337,
+          verifyingContract: seaportAddress,
+        };
+        const counter = await seaport.read.getCounter([alice.account.address]);
+        const orderComponents = {
+          ...baseOrderParameters,
+          counter: counter,
+        };
+
+        // alice signs the order
+        const signature = await alice.signTypedData({
+          domain: domainData,
+          types: orderType,
+          primaryType: "OrderComponents",
+          message: orderComponents,
+        });
+
+        // construct advanced order
+        const advancedOrder = {
+          parameters: orderParameters,
+          numerator: wethTradeamount,
+          denominator: wethTradeamount,
+          signature: signature,
+          extraData: encodedLockParams,
+        };
+
+        // check for expected starting balances
+        expect(
+          await feeOnTransferToken.read.balanceOf([alice.account.address])
+        ).to.eq(aliceStartingFeeTokenBalance - feeTokenTradeAmount);
+        expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+        expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+          startingWethBalance
+        );
+        expect(
+          await feeOnTransferToken.read.balanceOf([bob.account.address])
+        ).to.eq((feeTokenTradeAmount * 99n) / 100n);
+
+        // expect revert
+        // bob's pre balance is ok
+        // but the transfer amount won't be correct because a fee is taken
+        await expect(
+          (
+            await getSeaport(bob)
+          ).write.fulfillAdvancedOrder([
+            advancedOrder,
+            [],
+            zeroHash,
+            bob.account.address,
+          ])
+        ).to.be.rejectedWith("INSUFFICIENT_POST_BALANCE");
       });
     });
   });
