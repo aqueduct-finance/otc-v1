@@ -2391,5 +2391,200 @@ describe("TokenLockupPlansHandler tests", function () {
         ).to.be.rejectedWith("Transaction reverted without a reason string");
       });
     });
+
+    // name: F-2024-1513 - Use '<=' Operator in Time Validation Checks for Enhanced Flexibility - Info
+    it("create lockup with cliffOffsetTime == endOffsetTime", async function () {
+      const {
+        alice,
+        bob,
+        seaport,
+        usdt,
+        weth,
+        getSeaport,
+        getUsdt,
+        getWeth,
+        aliceStartingUsdtBalance,
+        startingWethBalance,
+        lockupHandler,
+        lockup,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdtTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob can fill the trade
+      // alice and bob approve seaport contract
+      await (
+        await getUsdt(alice)
+      ).write.approve([seaportAddress, usdtTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // alice and bob also have to approve the lockup handler for the opposite token
+      // bc lockups are created atomically post-trade
+      await (
+        await getWeth(alice)
+      ).write.approve([lockupHandler.address, wethTradeamount]);
+      await (
+        await getUsdt(bob)
+      ).write.approve([lockupHandler.address, usdtTradeAmount]);
+
+      // construct order
+      const salt = generateSalt();
+      const encodedLockParams = encodeAbiParameters(
+        [
+          {
+            name: "LockParams",
+            type: "tuple",
+            components: [
+              {
+                name: "offerLockupParams",
+                type: "tuple",
+                components: [
+                  { name: "start", type: "uint256" },
+                  { name: "cliffOffsetTime", type: "uint256" },
+                  { name: "endOffsetTime", type: "uint256" },
+                  { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
+                ],
+              },
+              {
+                name: "considerationLockupParams",
+                type: "tuple",
+                components: [
+                  { name: "start", type: "uint256" },
+                  { name: "cliffOffsetTime", type: "uint256" },
+                  { name: "endOffsetTime", type: "uint256" },
+                  { name: "period", type: "uint256" },
+                  { name: "initialized", type: "bool" },
+                ],
+              },
+            ],
+          },
+        ],
+        [
+          {
+            offerLockupParams: {
+              start: timestamp + 500n,
+              cliffOffsetTime: 500n, // NOTE: cliffOffsetTime and endOffsetTime are equal
+              endOffsetTime: 500n,
+              period: 1n,
+              initialized: true,
+            },
+            // set everything to 0
+            considerationLockupParams: {
+              start: 0n,
+              cliffOffsetTime: 0n,
+              endOffsetTime: 0n,
+              period: 0n,
+              initialized: false,
+            },
+          },
+        ]
+      );
+      const hashedLockParams = keccak256(encodedLockParams);
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: lockupHandler.address, // don't forget this
+
+        // this is what the trader is giving
+        offer: [
+          {
+            itemType: 1, // 1 == erc20
+            token: usdt.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdtTradeAmount,
+            endAmount: usdtTradeAmount,
+          },
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
+        ],
+        orderType: 2, // full restricted
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+        zoneHash: hashedLockParams,
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+
+      // construct advanced order
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: wethTradeamount,
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedLockParams,
+      };
+
+      // check that bob can swap
+      // check for expected starting balances
+      expect(await usdt.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdtBalance
+      );
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdt.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // bob receives the signed order and fulfills it
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
+
+      // check lockup contract balances for each
+      expect(await usdt.read.balanceOf([lockup.address])).to.eq(
+        usdtTradeAmount
+      );
+      expect(await weth.read.balanceOf([lockup.address])).to.eq(0n);
+    });
   });
 });
