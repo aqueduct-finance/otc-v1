@@ -107,6 +107,20 @@ const main = async () => {
       zoneAggregator.address,
     ],
   });
+
+  // deploy RestrictBySignatureV2.sol
+  const restrictBySignatureV2Zone = await hre.viem.deployContract(
+    "RestrictBySignatureV2",
+    [serverSignatureAddress, chainId]
+  );
+  console.log("RestrictBySignatureV2: ", restrictBySignatureV2Zone.address);
+
+  // wait for deployment and verify
+  await delay(30000);
+  await hre.run("verify:verify", {
+    address: restrictBySignatureV2Zone.address,
+    constructorArguments: [serverSignatureAddress, chainId],
+  });
 };
 
 const runMain = async () => {
