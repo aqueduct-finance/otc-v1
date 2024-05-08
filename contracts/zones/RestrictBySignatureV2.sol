@@ -63,7 +63,9 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
                 "RestrictBySignatureV2SignedParams(",
                 "bytes32 orderHash,",
                 "bytes32 merkleRoot,",
-                "uint256 requireServerSignature",
+                "uint256 requireServerSignature,",
+                "uint256 startTimestamp,",
+                "uint256 endTimestamp",
                 ")"
             )
         );
@@ -72,7 +74,8 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
                 "RestrictBySignatureV2AuthParams(",
                 "bytes32 orderHash,",
                 "uint256 fulfiller,",
-                "uint256 fillCap,",
+                "uint256 minFill,",
+                "uint256 maxFill,",
                 "uint256 deadline",
                 ")"
             )
@@ -106,7 +109,7 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
         bytes4 validOrderMagicValue
     ) {
         RestrictBySignatureV2ExtraData memory decodedExtraData =  abi.decode(zoneParameters.extraData, (RestrictBySignatureV2ExtraData));
-        bytes32 addressHash = keccak256(abi.encodePacked(zoneParameters.fulfiller, decodedExtraData.fillCap));
+        bytes32 addressHash = keccak256(abi.encodePacked(zoneParameters.fulfiller, decodedExtraData.minFill, decodedExtraData.maxFill));
         bytes32 merkleRoot = computeMerkleRoot(addressHash, decodedExtraData.nodes);
 
         // check user signature
@@ -114,7 +117,9 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
             _SIGNED_PARAMS_TYPEHASH, 
             zoneParameters.orderHash, 
             merkleRoot, 
-            uint256(decodedExtraData.requireServerSignature ? 1 : 0)
+            uint256(decodedExtraData.requireServerSignature ? 1 : 0),
+            decodedExtraData.startTimestamp,
+            decodedExtraData.endTimestamp
         ));
         checkSignature(decodedExtraData.signature, signedParamsHash, zoneParameters.offerer);
 
@@ -124,7 +129,8 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
                 _AUTH_PARAMS_TYPEHASH, 
                 zoneParameters.orderHash, 
                 uint256(uint160(zoneParameters.fulfiller)), 
-                decodedExtraData.fillCap, 
+                decodedExtraData.minFill, 
+                decodedExtraData.maxFill, 
                 decodedExtraData.serverToken.deadline
             ));
             checkSignature(decodedExtraData.serverToken.signature, authParamsHash, owner);
@@ -132,11 +138,22 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
             if (block.timestamp > decodedExtraData.serverToken.deadline) { revert DEADLINE_EXCEEDED(); }
         }
 
-        // enforce fill cap
+        // enforce min/max fill
         // just enforce on first offer item
         fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] += zoneParameters.offer[0].amount;
-        if (fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] > decodedExtraData.fillCap) {
-            revert FILL_CAP_EXCEEDED();
+        if (fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] < decodedExtraData.minFill) {
+            revert UNDER_MIN_FILL();
+        }
+        if (fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] > decodedExtraData.maxFill) {
+            revert MAX_FILL_EXCEEDED();
+        }
+
+        // enforce start/end time
+        if (block.timestamp < decodedExtraData.startTimestamp) {
+            revert BEFORE_START_TIME();
+        }
+        if (block.timestamp > decodedExtraData.endTimestamp) {
+            revert END_TIME_EXCEEDED();
         }
 
         validOrderMagicValue = ZoneInterface.validateOrder.selector;

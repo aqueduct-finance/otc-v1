@@ -1,4 +1,7 @@
-import { loadFixture } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+import {
+  loadFixture,
+  time,
+} from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { expect } from "chai";
 import { parseUnits, keccak256, encodeAbiParameters, encodePacked } from "viem";
 import hre from "hardhat";
@@ -11,8 +14,8 @@ import accountsFixture from "./fixtures/accountsFixture";
 import restrictBySignatureV2SignedParams from "./utils/restrictBySignatureV2SignedParams";
 import serverSignatureTypeV2 from "./utils/serverSignatureTypeV2";
 
-const encodeNode = (address: `0x${string}`, cap: bigint) => {
-  return encodePacked(["address", "uint256"], [address, cap]);
+const encodeNode = (address: `0x${string}`, cap: bigint, min: bigint) => {
+  return encodePacked(["address", "uint256", "uint256"], [address, min, cap]);
 };
 
 describe("RestrictBySignatureV2 Zone tests", function () {
@@ -79,12 +82,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       // fill caps
       const bobFillCap = usdcTradeAmount;
       const charlieFillCap = usdcTradeAmount;
+      const minFillCap = 0n;
 
       // alice computes the merkle root
       // leaf nodes are just bob and charlie, so the root is the hash of those two
-      const hashBob = keccak256(encodeNode(bob.account.address, bobFillCap));
+      const hashBob = keccak256(
+        encodeNode(bob.account.address, bobFillCap, minFillCap)
+      );
       const hashCharlie = keccak256(
-        encodeNode(charlie.account.address, charlieFillCap)
+        encodeNode(charlie.account.address, charlieFillCap, minFillCap)
       );
       const concatenatedAddresses =
         hashBob < hashCharlie
@@ -168,6 +174,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         verifyingContract: restrictToAddressesZone.address,
       };
       const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const startTime = 0n;
+      const endTime = timestamp + 86400n;
       const rootSignature = await alice.signTypedData({
         domain: sigDomainData,
         types: restrictBySignatureV2SignedParams,
@@ -176,6 +184,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
           orderHash,
           merkleRoot,
           requireServerSignature: 1,
+          startTimestamp: startTime,
+          endTimestamp: endTime,
         },
       });
 
@@ -185,7 +195,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const authParams = {
         orderHash: orderHash,
         fulfiller: bob.account.address,
-        fillCap: bobFillCap,
+        minFill: minFillCap,
+        maxFill: bobFillCap,
         deadline: deadline, // 10 mins from now
       };
       const serverSignature = await server.signTypedData({
@@ -209,16 +220,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -226,10 +240,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: bobFillCap,
+            minFill: minFillCap,
+            maxFill: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken,
           },
         ]
@@ -299,16 +316,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -316,10 +336,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: charlieFillCap,
+            minFill: minFillCap,
+            maxFill: charlieFillCap,
             nodes: necessaryHashes2,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken,
           },
         ]
@@ -343,6 +366,283 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       ).to.be.rejectedWith(
         "VM Exception while processing transaction: reverted with an unrecognized custom error"
       );
+    });
+
+    /*
+        - Just restrict to one user
+        - try to fill before startTimestamp
+        - fill some after it
+        - try to fill more after endTimestamp
+    */
+    it("one recipient, under, within, and over timeframe", async function () {
+      const {
+        alice,
+        bob,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
+        startingWethBalance,
+        restrictToAddressesZone,
+        server,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob and charlie can fill the trade
+      // alice, bob, and charlie approve seaport contract
+      await (
+        await getUsdc(alice)
+      ).write.approve([seaportAddress, usdcTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // fill caps
+      const bobFillCap = usdcTradeAmount;
+      const minFillCap = 0n;
+
+      // alice computes the merkle root
+      const hashBob = keccak256(
+        encodeNode(bob.account.address, bobFillCap, minFillCap)
+      );
+      const merkleRoot = hashBob;
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: restrictToAddressesZone.address,
+
+        // this is what the trader is giving
+        offer: [
+          {
+            itemType: 1, // 1 == erc20
+            token: usdc.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
+        ],
+        orderType: 3, // partial restricted
+
+        // NOTE: don't use these
+        startTime: 0n,
+        endTime: timestamp + 1000000000000n,
+
+        zoneHash: zeroHash,
+
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+
+      // alice signs the merkle root and order hash
+      const sigDomainData = {
+        name: await restrictToAddressesZone.read._NAME(),
+        version: await restrictToAddressesZone.read._VERSION(),
+        chainId: 31337,
+        verifyingContract: restrictToAddressesZone.address,
+      };
+      const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const buffer = 500n;
+      const startTime = timestamp + buffer;
+      const endTime = startTime + buffer;
+      const rootSignature = await alice.signTypedData({
+        domain: sigDomainData,
+        types: restrictBySignatureV2SignedParams,
+        primaryType: "RestrictBySignatureV2SignedParams",
+        message: {
+          orderHash,
+          merkleRoot,
+          requireServerSignature: 1,
+          startTimestamp: startTime,
+          endTimestamp: endTime,
+        },
+      });
+
+      // alice gets server token
+      // server is signing off on the restriction set
+      const deadline = timestamp + 1000000000n;
+      const authParams = {
+        orderHash: orderHash,
+        fulfiller: bob.account.address,
+        minFill: minFillCap,
+        maxFill: bobFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams,
+      });
+      const serverToken = {
+        deadline: deadline,
+        signature: serverSignature,
+      };
+
+      // bob finds the hashes necessary to compute the merkle root from the hash of his address
+      // in this case, just the hash of charlie's address
+      // NOTE: for sake of privacy, alice can provide the merkle tree to bob, without necessarily revealing the underlying addresses
+      const necessaryHashes: `0x${string}`[] = [];
+      const encodedExtraData = encodeAbiParameters(
+        [
+          {
+            name: "RestrictBySignatureV2ExtraData",
+            type: "tuple",
+            components: [
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
+              { name: "nodes", type: "bytes32[]" },
+              { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+            ],
+          },
+        ],
+        [
+          {
+            minFill: minFillCap,
+            maxFill: bobFillCap,
+            nodes: necessaryHashes,
+            signature: rootSignature,
+            requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
+            serverToken: serverToken,
+          },
+        ]
+      );
+
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // partial fill 20%
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: wethTradeamount / 5n, // 20%
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData,
+      };
+
+      // bob tries to fill before start time
+      await expect(
+        (
+          await getSeaport(bob)
+        ).write.fulfillAdvancedOrder([
+          advancedOrder,
+          [],
+          zeroHash,
+          bob.account.address,
+        ])
+      ).to.be.rejectedWith("BEFORE_START_TIME");
+
+      // go forward past start time
+      await time.increase(buffer + 10n);
+
+      // bob is able to fill some after start time (and before end time)
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(
+        (wethTradeamount * 2n) / 10n
+      );
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        (usdcTradeAmount * 8n) / 10n
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(
+        (usdcTradeAmount * 2n) / 10n
+      );
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        (wethTradeamount * 8n) / 10n
+      );
+
+      // go forward past end time
+      await time.increase(buffer + 10n);
+
+      // bob tries to fill after end time
+      await expect(
+        (
+          await getSeaport(bob)
+        ).write.fulfillAdvancedOrder([
+          advancedOrder,
+          [],
+          zeroHash,
+          bob.account.address,
+        ])
+      ).to.be.rejectedWith("END_TIME_EXCEEDED");
     });
 
     /*
@@ -392,6 +692,7 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const bobFillCap = usdcTradeAmount;
       const charlieFillCap = usdcTradeAmount;
       const danFillCap = usdcTradeAmount;
+      const minFillCap = 0n;
 
       /*
         alice computes the merkle root
@@ -403,9 +704,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             /   \
         hB   hC
       */
-      const hB = keccak256(encodeNode(bob.account.address, bobFillCap));
-      const hC = keccak256(encodeNode(charlie.account.address, charlieFillCap));
-      const hD = keccak256(encodeNode(dan.account.address, danFillCap));
+      const hB = keccak256(
+        encodeNode(bob.account.address, bobFillCap, minFillCap)
+      );
+      const hC = keccak256(
+        encodeNode(charlie.account.address, charlieFillCap, minFillCap)
+      );
+      const hD = keccak256(
+        encodeNode(dan.account.address, danFillCap, minFillCap)
+      );
       const hBC = keccak256(
         (hB < hC ? hB + hC.slice(2) : hC + hB.slice(2)) as `0x${string}`
       );
@@ -489,6 +796,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         verifyingContract: restrictToAddressesZone.address,
       };
       const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const startTime = 0n;
+      const endTime = timestamp + 86400n;
       const rootSignature = await alice.signTypedData({
         domain: sigDomainData,
         types: restrictBySignatureV2SignedParams,
@@ -497,6 +806,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
           orderHash,
           merkleRoot,
           requireServerSignature: 1,
+          startTimestamp: startTime,
+          endTimestamp: endTime,
         },
       });
 
@@ -506,7 +817,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const authParams = {
         orderHash: orderHash,
         fulfiller: bob.account.address,
-        fillCap: bobFillCap,
+        minFill: minFillCap,
+        maxFill: bobFillCap,
         deadline: deadline, // 10 mins from now
       };
       const serverSignature = await server.signTypedData({
@@ -538,16 +850,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -555,10 +870,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: bobFillCap,
+            minFill: minFillCap,
+            maxFill: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken,
           },
         ]
@@ -635,7 +953,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const authParams2 = {
         orderHash: orderHash,
         fulfiller: charlie.account.address,
-        fillCap: charlieFillCap,
+        minFill: minFillCap,
+        maxFill: charlieFillCap,
         deadline: deadline, // 10 mins from now
       };
       const serverSignature2 = await server.signTypedData({
@@ -667,16 +986,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -684,10 +1006,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: charlieFillCap,
+            minFill: minFillCap,
+            maxFill: charlieFillCap,
             nodes: necessaryHashes2,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken2,
           },
         ]
@@ -727,7 +1052,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const authParams3 = {
         orderHash: orderHash,
         fulfiller: dan.account.address,
-        fillCap: danFillCap,
+        minFill: minFillCap,
+        maxFill: danFillCap,
         deadline: deadline, // 10 mins from now
       };
       const serverSignature3 = await server.signTypedData({
@@ -759,16 +1085,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -776,10 +1105,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: danFillCap,
+            minFill: minFillCap,
+            maxFill: danFillCap,
             nodes: necessaryHashes3,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken3,
           },
         ]
@@ -850,12 +1182,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       // fill caps
       const bobFillCap = (usdcTradeAmount * 4n) / 10n;
       const charlieFillCap = (usdcTradeAmount * 6n) / 10n;
+      const minFillCap = 0n;
 
       // alice computes the merkle root
       // leaf nodes are just bob and charlie, so the root is the hash of those two
-      const hashBob = keccak256(encodeNode(bob.account.address, bobFillCap));
+      const hashBob = keccak256(
+        encodeNode(bob.account.address, bobFillCap, minFillCap)
+      );
       const hashCharlie = keccak256(
-        encodeNode(charlie.account.address, charlieFillCap)
+        encodeNode(charlie.account.address, charlieFillCap, minFillCap)
       );
       const concatenatedAddresses =
         hashBob < hashCharlie
@@ -939,6 +1274,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         verifyingContract: restrictToAddressesZone.address,
       };
       const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const startTime = 0n;
+      const endTime = timestamp + 86400n;
       const rootSignature = await alice.signTypedData({
         domain: sigDomainData,
         types: restrictBySignatureV2SignedParams,
@@ -947,6 +1284,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
           orderHash,
           merkleRoot,
           requireServerSignature: 1,
+          startTimestamp: startTime,
+          endTimestamp: endTime,
         },
       });
 
@@ -956,7 +1295,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const authParams = {
         orderHash: orderHash,
         fulfiller: bob.account.address,
-        fillCap: bobFillCap,
+        minFill: minFillCap,
+        maxFill: bobFillCap,
         deadline: deadline, // 10 mins from now
       };
       const serverSignature = await server.signTypedData({
@@ -980,16 +1320,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -997,10 +1340,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: bobFillCap,
+            minFill: minFillCap,
+            maxFill: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken,
           },
         ]
@@ -1023,7 +1369,7 @@ describe("RestrictBySignatureV2 Zone tests", function () {
           zeroHash,
           bob.account.address,
         ])
-      ).to.be.rejectedWith("FILL_CAP_EXCEEDED");
+      ).to.be.rejectedWith("MAX_FILL_EXCEEDED");
 
       // construct advanced order
       const advancedOrder = {
@@ -1073,7 +1419,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const authParams2 = {
         orderHash: orderHash,
         fulfiller: charlie.account.address,
-        fillCap: charlieFillCap,
+        minFill: minFillCap,
+        maxFill: charlieFillCap,
         deadline: deadline, // 10 mins from now
       };
       const serverSignature2 = await server.signTypedData({
@@ -1095,16 +1442,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -1112,10 +1462,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: charlieFillCap,
+            minFill: minFillCap,
+            maxFill: charlieFillCap,
             nodes: necessaryHashes2,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken2,
           },
         ]
@@ -1190,12 +1543,15 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       // fill caps
       const bobFillCap = (usdcTradeAmount * 4n) / 10n;
       const charlieFillCap = (usdcTradeAmount * 6n) / 10n;
+      const minFillCap = 0n;
 
       // alice computes the merkle root
       // leaf nodes are just bob and charlie, so the root is the hash of those two
-      const hashBob = keccak256(encodeNode(bob.account.address, bobFillCap));
+      const hashBob = keccak256(
+        encodeNode(bob.account.address, bobFillCap, minFillCap)
+      );
       const hashCharlie = keccak256(
-        encodeNode(charlie.account.address, charlieFillCap)
+        encodeNode(charlie.account.address, charlieFillCap, minFillCap)
       );
       const concatenatedAddresses =
         hashBob < hashCharlie
@@ -1279,6 +1635,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         verifyingContract: restrictToAddressesZone.address,
       };
       const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const startTime = 0n;
+      const endTime = timestamp + 86400n;
       const rootSignature = await alice.signTypedData({
         domain: sigDomainData,
         types: restrictBySignatureV2SignedParams,
@@ -1287,6 +1645,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
           orderHash,
           merkleRoot,
           requireServerSignature: 1,
+          startTimestamp: startTime,
+          endTimestamp: endTime,
         },
       });
 
@@ -1296,7 +1656,8 @@ describe("RestrictBySignatureV2 Zone tests", function () {
       const authParams = {
         orderHash: orderHash,
         fulfiller: bob.account.address,
-        fillCap: bobFillCap,
+        minFill: minFillCap,
+        maxFill: bobFillCap,
         deadline: deadline, // 10 mins from now
       };
       const serverSignature = await server.signTypedData({
@@ -1320,16 +1681,19 @@ describe("RestrictBySignatureV2 Zone tests", function () {
             name: "RestrictBySignatureV2ExtraData",
             type: "tuple",
             components: [
-              { name: "fillCap", type: "uint256" },
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
               { name: "nodes", type: "bytes32[]" },
               { name: "signature", type: "bytes" },
               { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
               {
                 name: "serverToken",
                 type: "tuple",
                 components: [
-                    { name: "deadline", type: "uint256" },
-                    { name: "signature", type: "bytes" },
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
                 ],
               },
             ],
@@ -1337,10 +1701,13 @@ describe("RestrictBySignatureV2 Zone tests", function () {
         ],
         [
           {
-            fillCap: bobFillCap,
+            minFill: minFillCap,
+            maxFill: bobFillCap,
             nodes: necessaryHashes,
             signature: rootSignature,
             requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
             serverToken: serverToken,
           },
         ]
@@ -1407,7 +1774,279 @@ describe("RestrictBySignatureV2 Zone tests", function () {
           zeroHash,
           bob.account.address,
         ])
-      ).to.be.rejectedWith("FILL_CAP_EXCEEDED");
+      ).to.be.rejectedWith("MAX_FILL_EXCEEDED");
+    });
+
+    /*
+        Check min fill amount is enforced
+    */
+    it("multiple partial fills, under min fill", async function () {
+      const {
+        alice,
+        bob,
+        charlie,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
+        startingWethBalance,
+        restrictToAddressesZone,
+        server,
+      } = await loadFixture(fixture);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // alice will designate that only bob and charlie can fill the trade
+      // alice, bob, and charlie approve seaport contract
+      await (
+        await getUsdc(alice)
+      ).write.approve([seaportAddress, usdcTradeAmount]);
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+      await (
+        await getWeth(charlie)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // fill caps
+      const bobFillCap = (usdcTradeAmount * 4n) / 10n;
+      const charlieFillCap = (usdcTradeAmount * 6n) / 10n;
+      const minFillCap = bobFillCap;
+
+      // alice computes the merkle root
+      // leaf nodes are just bob and charlie, so the root is the hash of those two
+      const hashBob = keccak256(
+        encodeNode(bob.account.address, bobFillCap, minFillCap)
+      );
+      const hashCharlie = keccak256(
+        encodeNode(charlie.account.address, charlieFillCap, minFillCap)
+      );
+      const concatenatedAddresses =
+        hashBob < hashCharlie
+          ? hashBob + hashCharlie.slice(2)
+          : hashCharlie + hashBob.slice(2);
+      const merkleRoot = keccak256(concatenatedAddresses as `0x${string}`);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: alice.account.address,
+        zone: restrictToAddressesZone.address,
+
+        // this is what the trader is giving
+        offer: [
+          {
+            itemType: 1, // 1 == erc20
+            token: usdc.address,
+            identifierOrCriteria: 0n, // criteria not used for erc20s
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
+        ],
+
+        // what the trader expects to receive
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: alice.account.address,
+          },
+        ],
+        orderType: 3, // partial restricted
+        startTime: timestamp,
+        endTime: timestamp + 86400n, // 24 hours from now
+
+        zoneHash: zeroHash,
+
+        salt: salt,
+        conduitKey: zeroHash, // not using a conduit
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([alice.account.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // alice signs the order
+      const signature = await alice.signTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+
+      // alice signs the merkle root and order hash
+      const sigDomainData = {
+        name: await restrictToAddressesZone.read._NAME(),
+        version: await restrictToAddressesZone.read._VERSION(),
+        chainId: 31337,
+        verifyingContract: restrictToAddressesZone.address,
+      };
+      const orderHash = await seaport.read.getOrderHash([orderComponents]);
+      const startTime = 0n;
+      const endTime = timestamp + 86400n;
+      const rootSignature = await alice.signTypedData({
+        domain: sigDomainData,
+        types: restrictBySignatureV2SignedParams,
+        primaryType: "RestrictBySignatureV2SignedParams",
+        message: {
+          orderHash,
+          merkleRoot,
+          requireServerSignature: 1,
+          startTimestamp: startTime,
+          endTimestamp: endTime,
+        },
+      });
+
+      // bob gets server token
+      // server is signing off on the restriction set
+      const deadline = timestamp + 600n;
+      const authParams = {
+        orderHash: orderHash,
+        fulfiller: bob.account.address,
+        minFill: minFillCap,
+        maxFill: bobFillCap,
+        deadline: deadline, // 10 mins from now
+      };
+      const serverSignature = await server.signTypedData({
+        domain: sigDomainData,
+        types: serverSignatureTypeV2,
+        primaryType: "RestrictBySignatureV2AuthParams",
+        message: authParams,
+      });
+      const serverToken = {
+        deadline: deadline,
+        signature: serverSignature,
+      };
+
+      // bob finds the hashes necessary to compute the merkle root from the hash of his address
+      // in this case, just the hash of charlie's address
+      // NOTE: for sake of privacy, alice can provide the merkle tree to bob, without necessarily revealing the underlying addresses
+      const necessaryHashes = [hashCharlie];
+      const encodedExtraData = encodeAbiParameters(
+        [
+          {
+            name: "RestrictBySignatureV2ExtraData",
+            type: "tuple",
+            components: [
+              { name: "minFill", type: "uint256" },
+              { name: "maxFill", type: "uint256" },
+              { name: "nodes", type: "bytes32[]" },
+              { name: "signature", type: "bytes" },
+              { name: "requireServerSignature", type: "bool" },
+              { name: "startTimestamp", type: "uint256" },
+              { name: "endTimestamp", type: "uint256" },
+              {
+                name: "serverToken",
+                type: "tuple",
+                components: [
+                  { name: "deadline", type: "uint256" },
+                  { name: "signature", type: "bytes" },
+                ],
+              },
+            ],
+          },
+        ],
+        [
+          {
+            minFill: minFillCap,
+            maxFill: bobFillCap,
+            nodes: necessaryHashes,
+            signature: rootSignature,
+            requireServerSignature: true,
+            startTimestamp: startTime,
+            endTimestamp: endTime,
+            serverToken: serverToken,
+          },
+        ]
+      );
+
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // bob tries to fill only 20%
+      // this puts him under his min fill
+      const badOrder = {
+        parameters: orderParameters,
+        numerator: (wethTradeamount * 2n) / 10n,
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData,
+      };
+      await expect(
+        (
+          await getSeaport(bob)
+        ).write.fulfillAdvancedOrder([
+          badOrder,
+          [],
+          zeroHash,
+          bob.account.address,
+        ])
+      ).to.be.rejectedWith("UNDER_MIN_FILL");
+
+      // because max fill and min fill are the same, bob must fill exactly that amount
+      const advancedOrder = {
+        parameters: orderParameters,
+        numerator: (wethTradeamount * 4n) / 10n, // fill 40%
+        denominator: wethTradeamount,
+        signature: signature,
+        extraData: encodedExtraData,
+      };
+      await (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([alice.account.address])).to.eq(
+        (wethTradeamount * 4n) / 10n
+      );
+      expect(await usdc.read.balanceOf([alice.account.address])).to.eq(
+        (usdcTradeAmount * 6n) / 10n
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(
+        (usdcTradeAmount * 4n) / 10n
+      );
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        (wethTradeamount * 6n) / 10n
+      );
     });
   });
 });
