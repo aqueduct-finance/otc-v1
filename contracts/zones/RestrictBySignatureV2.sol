@@ -141,7 +141,7 @@ contract RestrictBySignatureV2 is IRestrictBySignatureV2 {
         // enforce min/max fill
         // just enforce on first offer item
         fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] += zoneParameters.offer[0].amount;
-        if (fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] < decodedExtraData.minFill) {
+        if (zoneParameters.offer[0].amount < decodedExtraData.minFill) {
             revert UNDER_MIN_FILL();
         }
         if (fillAmount[zoneParameters.orderHash][zoneParameters.fulfiller] > decodedExtraData.maxFill) {
