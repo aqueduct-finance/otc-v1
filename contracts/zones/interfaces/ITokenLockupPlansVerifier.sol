@@ -10,4 +10,10 @@ interface ITokenLockupPlansVerifier is ZoneInterface {
     error CONSIDERATION_NOT_ERC721();
     error LOCKUP_INVALID_AMOUNT();
     error LOCKUP_INVALID_OWNER();
+    error INVALID_EXTRA_DATA();
+
+    struct LockupVerificationParams {
+        uint256 offerAmount;
+        uint256 considerationAmount;
+    }
 }

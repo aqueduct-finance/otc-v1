@@ -32,14 +32,20 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
     function validateOrder(
         ZoneParameters calldata zoneParameters
     ) external returns (bytes4 validOrderMagicValue) {
-        // expected consideration amount is encoded in zoneHash by the offerer
-        uint256 considerationAmount = uint256(zoneParameters.zoneHash);
+        // validate data first
+        bytes32 zoneHash = keccak256(zoneParameters.extraData);
+        if (zoneHash != zoneParameters.zoneHash) {
+            revert INVALID_EXTRA_DATA();
+        }
 
-        // expected offer amount is encoded in extraData by the fulfiller
-        uint256 offerAmount = abi.decode(zoneParameters.extraData, (uint256));
+        // decode params
+        LockupVerificationParams memory lockupParams = abi.decode(
+            zoneParameters.extraData,
+            (LockupVerificationParams)
+        );
 
         // create time locks for each if specified
-        if (considerationAmount > 0) {
+        if (lockupParams.considerationAmount > 0) {
             if (zoneParameters.consideration.length < 1) {
                 revert NO_CONSIDERATION();
             }
@@ -52,10 +58,10 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
             _checkLockup(
                 zoneParameters.offerer,
                 consideration.identifier,
-                considerationAmount
+                lockupParams.considerationAmount
             );
         }
-        if (offerAmount > 0) {
+        if (lockupParams.offerAmount > 0) {
             if (zoneParameters.offer.length < 1) {
                 revert NO_OFFER();
             }
@@ -68,7 +74,7 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
             _checkLockup(
                 zoneParameters.fulfiller,
                 offer.identifier,
-                offerAmount
+                lockupParams.offerAmount
             );
         }
 

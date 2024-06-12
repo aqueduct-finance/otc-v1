@@ -3,7 +3,7 @@ import {
   time,
 } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { expect } from "chai";
-import { parseUnits, encodeAbiParameters } from "viem";
+import { parseUnits, encodeAbiParameters, keccak256 } from "viem";
 import hre from "hardhat";
 import orderType from "./utils/orderType";
 import { seaportAddress, zeroHash } from "./utils/constants";
@@ -115,9 +115,24 @@ describe("TokenLockupPlansVerifier tests", function () {
     // construct order
     const salt = generateSalt();
     const encodedLockupParams = encodeAbiParameters(
-      [{ name: "amount", type: "uint256" }],
-      [bobLockupParams.amount]
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: 0n,
+          considerationAmount: bobLockupParams.amount,
+        },
+      ]
     );
+    const hashedLockupParams = keccak256(encodedLockupParams);
     const baseOrderParameters = {
       offerer: alice.account.address,
       zone: lockupVerifier.address,
@@ -147,7 +162,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       orderType: 2, // full restricted
       startTime: timestamp,
       endTime: timestamp + 86400n, // 24 hours from now
-      zoneHash: encodedLockupParams,
+      zoneHash: hashedLockupParams,
       salt: salt,
       conduitKey: zeroHash, // not using a conduit
     };
@@ -188,7 +203,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       numerator: 1n,
       denominator: 1n,
       signature: signature,
-      extraData: zeroHash,
+      extraData: encodedLockupParams,
     };
 
     // bob receives the signed order and fulfills it
@@ -351,10 +366,25 @@ describe("TokenLockupPlansVerifier tests", function () {
 
     // construct order
     const salt = generateSalt();
-    const aliceEncodedLockupParams = encodeAbiParameters(
-      [{ name: "amount", type: "uint256" }],
-      [bobLockupParams.amount]
+    const encodedLockupParams = encodeAbiParameters(
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: aliceLockupParams.amount,
+          considerationAmount: bobLockupParams.amount,
+        },
+      ]
     );
+    const hashedLockupParams = keccak256(encodedLockupParams);
     const baseOrderParameters = {
       offerer: alice.account.address,
       zone: lockupVerifier.address,
@@ -384,7 +414,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       orderType: 2, // full restricted
       startTime: timestamp,
       endTime: timestamp + 86400n, // 24 hours from now
-      zoneHash: aliceEncodedLockupParams,
+      zoneHash: hashedLockupParams,
       salt: salt,
       conduitKey: zeroHash, // not using a conduit
     };
@@ -420,17 +450,12 @@ describe("TokenLockupPlansVerifier tests", function () {
     });
 
     // construct advanced order
-    // bob passes the expected amount to extraData
-    const bobEncodedLockupParams = encodeAbiParameters(
-      [{ name: "amount", type: "uint256" }],
-      [aliceLockupParams.amount]
-    );
     const advancedOrder = {
       parameters: orderParameters,
       numerator: 1n,
       denominator: 1n,
       signature: signature,
-      extraData: bobEncodedLockupParams,
+      extraData: encodedLockupParams,
     };
 
     // bob receives the signed order and fulfills it
@@ -541,9 +566,24 @@ describe("TokenLockupPlansVerifier tests", function () {
     // construct order
     const salt = generateSalt();
     const encodedLockupParams = encodeAbiParameters(
-      [{ name: "amount", type: "uint256" }],
-      [bobLockupParams.amount]
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: 0n,
+          considerationAmount: bobLockupParams.amount,
+        },
+      ]
     );
+    const hashedLockupParams = keccak256(encodedLockupParams);
     const baseOrderParameters = {
       offerer: alice.account.address,
       zone: lockupVerifier.address,
@@ -573,7 +613,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       orderType: 2, // full restricted
       startTime: timestamp,
       endTime: timestamp + 86400n, // 24 hours from now
-      zoneHash: encodedLockupParams,
+      zoneHash: hashedLockupParams,
       salt: salt,
       conduitKey: zeroHash, // not using a conduit
     };
@@ -614,7 +654,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       numerator: 1n,
       denominator: 1n,
       signature: signature,
-      extraData: zeroHash,
+      extraData: encodedLockupParams,
     };
 
     // go forward in time so some of the plan vests
@@ -726,6 +766,25 @@ describe("TokenLockupPlansVerifier tests", function () {
 
     // construct order
     const salt = generateSalt();
+    const encodedLockupParams = encodeAbiParameters(
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: aliceLockupParams.amount,
+          considerationAmount: 0n,
+        },
+      ]
+    );
+    const hashedLockupParams = keccak256(encodedLockupParams);
     const baseOrderParameters = {
       offerer: alice.account.address,
       zone: lockupVerifier.address,
@@ -755,7 +814,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       orderType: 2, // full restricted
       startTime: timestamp,
       endTime: timestamp + 86400n, // 24 hours from now
-      zoneHash: zeroHash,
+      zoneHash: hashedLockupParams,
       salt: salt,
       conduitKey: zeroHash, // not using a conduit
     };
@@ -791,11 +850,6 @@ describe("TokenLockupPlansVerifier tests", function () {
     });
 
     // construct advanced order
-    // bob passes the expected amount to extraData
-    const encodedLockupParams = encodeAbiParameters(
-      [{ name: "amount", type: "uint256" }],
-      [aliceLockupParams.amount]
-    );
     const advancedOrder = {
       parameters: orderParameters,
       numerator: 1n,
@@ -858,9 +912,24 @@ describe("TokenLockupPlansVerifier tests", function () {
     // construct order
     const salt = generateSalt();
     const encodedLockupParams = encodeAbiParameters(
-      [{ name: "amount", type: "uint256" }],
-      [wethTradeamount]
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: 0n,
+          considerationAmount: wethTradeamount,
+        },
+      ]
     );
+    const hashedLockupParams = keccak256(encodedLockupParams);
     const baseOrderParameters = {
       offerer: alice.account.address,
       zone: lockupVerifier.address,
@@ -890,7 +959,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       orderType: 2, // full restricted
       startTime: timestamp,
       endTime: timestamp + 86400n, // 24 hours from now
-      zoneHash: encodedLockupParams,
+      zoneHash: hashedLockupParams,
       salt: salt,
       conduitKey: zeroHash, // not using a conduit
     };
@@ -931,7 +1000,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       numerator: 1n,
       denominator: 1n,
       signature: signature,
-      extraData: zeroHash,
+      extraData: encodedLockupParams,
     };
 
     // bob receives the signed order and tries to fulfill it
@@ -973,6 +1042,25 @@ describe("TokenLockupPlansVerifier tests", function () {
 
     // construct order
     const salt = generateSalt();
+    const encodedLockupParams = encodeAbiParameters(
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: wethTradeamount,
+          considerationAmount: 0n,
+        },
+      ]
+    );
+    const hashedLockupParams = keccak256(encodedLockupParams);
     const baseOrderParameters = {
       offerer: alice.account.address,
       zone: lockupVerifier.address,
@@ -1002,7 +1090,7 @@ describe("TokenLockupPlansVerifier tests", function () {
       orderType: 2, // full restricted
       startTime: timestamp,
       endTime: timestamp + 86400n, // 24 hours from now
-      zoneHash: zeroHash,
+      zoneHash: hashedLockupParams,
       salt: salt,
       conduitKey: zeroHash, // not using a conduit
     };
@@ -1038,10 +1126,6 @@ describe("TokenLockupPlansVerifier tests", function () {
     });
 
     // construct advanced order
-    const encodedLockupParams = encodeAbiParameters(
-      [{ name: "amount", type: "uint256" }],
-      [wethTradeamount]
-    );
     const advancedOrder = {
       parameters: orderParameters,
       numerator: 1n,
@@ -1061,5 +1145,209 @@ describe("TokenLockupPlansVerifier tests", function () {
         bob.account.address,
       ])
     ).to.be.rejectedWith("OFFER_NOT_ERC721");
+  });
+
+  it("fulfiller tries to modify lockup params", async function () {
+    const {
+      alice,
+      bob,
+      seaport,
+      usdc,
+      weth,
+      getSeaport,
+      getUsdc,
+      getWeth,
+      lockup,
+      getLockup,
+      lockupVerifier,
+    } = await loadFixture(fixture);
+
+    // amounts
+    const timestamp = await getBlockTimestamp();
+    const usdcTradeAmount = parseUnits("1000", 6);
+    const wethTradeamount = parseUnits("1", 18);
+
+    // bob approves lockup contract to spend his weth
+    await (await getWeth(bob)).write.approve([lockup.address, wethTradeamount]);
+
+    // bob shouldn't have any weth locked yet
+    expect(
+      await (
+        await getLockup(bob)
+      ).read.lockedBalances([bob.account.address, weth.address])
+    ).to.eq(0n);
+
+    // bob creates a lockup
+    const bobLockupParams = {
+      token: weth.address,
+      amount: wethTradeamount,
+      start: timestamp,
+      cliff: timestamp + 100n,
+      rate: 1n,
+      period: 1n,
+      planId: "",
+      tokenId: 0n,
+    };
+    bobLockupParams.planId = await (
+      await getLockup(bob)
+    ).write.createPlan([
+      bob.account.address,
+      bobLockupParams.token,
+      bobLockupParams.amount,
+      bobLockupParams.start,
+      bobLockupParams.cliff,
+      bobLockupParams.rate,
+      bobLockupParams.period,
+    ]);
+    expect(bobLockupParams.planId).to.not.equal("");
+
+    // check that it was locked
+    expect(
+      await (
+        await getLockup(bob)
+      ).read.lockedBalances([bob.account.address, weth.address])
+    ).to.eq(bobLockupParams.amount);
+
+    // get token id
+    bobLockupParams.tokenId = await (
+      await getLockup(bob)
+    ).read.tokenOfOwnerByIndex([bob.account.address, 0n]);
+    expect(bobLockupParams.tokenId).to.not.equal(0n);
+
+    // let's imagine that bob shares the token id with alice
+
+    // alice approves seaport to spend her usdc and bob approves it to spend his locked position
+    await (
+      await getUsdc(alice)
+    ).write.approve([seaportAddress, usdcTradeAmount]);
+    await (
+      await getLockup(bob)
+    ).write.approve([seaportAddress, bobLockupParams.tokenId]);
+
+    // construct order
+    const salt = generateSalt();
+    const encodedLockupParams = encodeAbiParameters(
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: 0n,
+          considerationAmount: bobLockupParams.amount,
+        },
+      ]
+    );
+    const hashedLockupParams = keccak256(encodedLockupParams);
+    const baseOrderParameters = {
+      offerer: alice.account.address,
+      zone: lockupVerifier.address,
+
+      // this is what the trader is giving
+      offer: [
+        {
+          itemType: 1, // 1 == erc20
+          token: usdc.address,
+          identifierOrCriteria: 0n, // criteria not used for erc20s
+          startAmount: usdcTradeAmount,
+          endAmount: usdcTradeAmount,
+        },
+      ],
+
+      // what the trader expects to receive
+      consideration: [
+        {
+          itemType: 2, // ERC721
+          token: lockup.address,
+          identifierOrCriteria: bobLockupParams.tokenId,
+          startAmount: 1n,
+          endAmount: 1n,
+          recipient: alice.account.address,
+        },
+      ],
+      orderType: 2, // full restricted
+      startTime: timestamp,
+      endTime: timestamp + 86400n, // 24 hours from now
+      zoneHash: hashedLockupParams,
+      salt: salt,
+      conduitKey: zeroHash, // not using a conduit
+    };
+    const orderParameters = {
+      ...baseOrderParameters,
+      totalOriginalConsiderationItems: 1n,
+    };
+
+    // get contract info
+    const info = await seaport.read.information();
+    const version = info[0];
+    const name = await seaport.read.name();
+    const domainData = {
+      name: name,
+      version: version,
+
+      // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+      chainId: 31337,
+      verifyingContract: seaportAddress,
+    };
+    const counter = await seaport.read.getCounter([alice.account.address]);
+    const orderComponents = {
+      ...baseOrderParameters,
+      counter: counter,
+    };
+
+    // alice signs the order
+    const signature = await alice.signTypedData({
+      domain: domainData,
+      types: orderType,
+      primaryType: "OrderComponents",
+      message: orderComponents,
+    });
+
+    // bob modifies lockup params
+    const badLockupParams = encodeAbiParameters(
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: 0n,
+          considerationAmount: bobLockupParams.amount / 2n,
+        },
+      ]
+    );
+
+    // construct advanced order
+    const advancedOrder = {
+      parameters: orderParameters,
+      numerator: 1n,
+      denominator: 1n,
+      signature: signature,
+      extraData: badLockupParams,
+    };
+
+    // bob tries to fill
+    await expect(
+      (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ])
+    ).to.be.rejectedWith("INVALID_EXTRA_DATA");
   });
 });
