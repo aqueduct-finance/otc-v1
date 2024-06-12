@@ -27,7 +27,7 @@ describe("ZoneAggregator Zone tests", function () {
     const server = af.erin;
     const requireServerSignatureZone = await hre.viem.deployContract(
       "RequireServerSignature",
-      [server.account.address, 31337]
+      [server.account.address, 31337n]
     );
     async function getRequireServerSignatureZone(client: typeof af.alice) {
       return await hre.viem.getContractAt(

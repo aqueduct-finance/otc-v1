@@ -36,7 +36,7 @@ const main = async () => {
   // deploy RequireServerSignature.sol
   const requireServerSignatureZone = await hre.viem.deployContract(
     "RequireServerSignature",
-    [serverSignatureAddress, chainId]
+    [serverSignatureAddress, BigInt(chainId ?? 11155111)]
   );
   console.log("RequireServerSignature: ", requireServerSignatureZone.address);
 
@@ -111,7 +111,7 @@ const main = async () => {
   // deploy RestrictBySignatureV2.sol
   const restrictBySignatureV2Zone = await hre.viem.deployContract(
     "RestrictBySignatureV2",
-    [serverSignatureAddress, chainId]
+    [serverSignatureAddress, BigInt(chainId ?? 11155111)]
   );
   console.log("RestrictBySignatureV2: ", restrictBySignatureV2Zone.address);
 
