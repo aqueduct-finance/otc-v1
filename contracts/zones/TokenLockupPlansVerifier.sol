@@ -91,7 +91,7 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
         address owner,
         uint256 tokenId,
         uint256 amount
-    ) internal {
+    ) internal view {
         if (tokenLockupPlans.ownerOf(tokenId) != owner) {
             revert LOCKUP_INVALID_OWNER();
         }
