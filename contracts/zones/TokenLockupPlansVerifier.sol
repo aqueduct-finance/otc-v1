@@ -31,7 +31,7 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
      */
     function validateOrder(
         ZoneParameters calldata zoneParameters
-    ) external returns (bytes4 validOrderMagicValue) {
+    ) external view returns (bytes4 validOrderMagicValue) {
         // validate data first
         bytes32 zoneHash = keccak256(zoneParameters.extraData);
         if (zoneHash != zoneParameters.zoneHash) {
