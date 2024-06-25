@@ -17,10 +17,12 @@ import {ITokenLockupPlansVerifier} from "./interfaces/ITokenLockupPlansVerifier.
  * If tokens are redeemed from the lockup, the trade will be invalidated.
  */
 contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
-    ITokenLockupPlans public immutable tokenLockupPlans;
+    mapping(address => bool) public whitelistedLockupAddresses;
 
-    constructor(address _tokenLockupPlans) {
-        tokenLockupPlans = ITokenLockupPlans(_tokenLockupPlans);
+    constructor(address[] memory _whitelistedLockupAddresses) {
+        for (uint256 i = 0; i < _whitelistedLockupAddresses.length; i++) {
+            whitelistedLockupAddresses[_whitelistedLockupAddresses[i]] = true;
+        }
     }
 
     /**
@@ -58,7 +60,8 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
             _checkLockup(
                 zoneParameters.offerer,
                 consideration.identifier,
-                lockupParams.considerationAmount
+                lockupParams.considerationAmount,
+                ITokenLockupPlans(consideration.token)
             );
         }
         if (lockupParams.offerAmount > 0) {
@@ -74,7 +77,8 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
             _checkLockup(
                 zoneParameters.fulfiller,
                 offer.identifier,
-                lockupParams.offerAmount
+                lockupParams.offerAmount,
+                ITokenLockupPlans(offer.token)
             );
         }
 
@@ -90,13 +94,18 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
     function _checkLockup(
         address owner,
         uint256 tokenId,
-        uint256 amount
+        uint256 amount,
+        ITokenLockupPlans lockupContract
     ) internal view {
-        if (tokenLockupPlans.ownerOf(tokenId) != owner) {
+        if (!whitelistedLockupAddresses[address(lockupContract)]) {
+            revert LOCKUP_NOT_WHITELISTED();
+        }
+
+        if (lockupContract.ownerOf(tokenId) != owner) {
             revert LOCKUP_INVALID_OWNER();
         }
 
-        (, uint256 planAmount, , , , ) = tokenLockupPlans.plans(tokenId);
+        (, uint256 planAmount, , , , ) = lockupContract.plans(tokenId);
         if (planAmount != amount) {
             revert LOCKUP_INVALID_AMOUNT();
         }

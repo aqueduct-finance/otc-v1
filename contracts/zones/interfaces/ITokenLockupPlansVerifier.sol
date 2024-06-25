@@ -11,6 +11,7 @@ interface ITokenLockupPlansVerifier is ZoneInterface {
     error LOCKUP_INVALID_AMOUNT();
     error LOCKUP_INVALID_OWNER();
     error INVALID_EXTRA_DATA();
+    error LOCKUP_NOT_WHITELISTED();
 
     struct LockupVerificationParams {
         uint256 offerAmount;

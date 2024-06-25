@@ -21,7 +21,7 @@ describe("TokenLockupPlansVerifier tests", function () {
 
     const lockupVerifier = await hre.viem.deployContract(
       "TokenLockupPlansVerifier",
-      [lf.lockup.address]
+      [[lf.lockup.address]]
     );
 
     return {
@@ -1349,5 +1349,194 @@ describe("TokenLockupPlansVerifier tests", function () {
         bob.account.address,
       ])
     ).to.be.rejectedWith("INVALID_EXTRA_DATA");
+  });
+
+  it("lockup not on whitelist", async function () {
+    const {
+      alice,
+      bob,
+      seaport,
+      usdc,
+      weth,
+      getSeaport,
+      getUsdc,
+      getWeth,
+      lockup,
+      getLockup,
+    } = await loadFixture(fixture);
+
+    // deploy lockup verifier with empty whitelist
+    const lockupVerifier = await hre.viem.deployContract(
+      "TokenLockupPlansVerifier",
+      [[]]
+    );
+
+    // amounts
+    const timestamp = await getBlockTimestamp();
+    const usdcTradeAmount = parseUnits("1000", 6);
+    const wethTradeamount = parseUnits("1", 18);
+
+    // bob approves lockup contract to spend his weth
+    await (await getWeth(bob)).write.approve([lockup.address, wethTradeamount]);
+
+    // bob shouldn't have any weth locked yet
+    expect(
+      await (
+        await getLockup(bob)
+      ).read.lockedBalances([bob.account.address, weth.address])
+    ).to.eq(0n);
+
+    // bob creates a lockup
+    const bobLockupParams = {
+      token: weth.address,
+      amount: wethTradeamount,
+      start: timestamp,
+      cliff: timestamp + 100n,
+      rate: 1n,
+      period: 1n,
+      planId: "",
+      tokenId: 0n,
+    };
+    bobLockupParams.planId = await (
+      await getLockup(bob)
+    ).write.createPlan([
+      bob.account.address,
+      bobLockupParams.token,
+      bobLockupParams.amount,
+      bobLockupParams.start,
+      bobLockupParams.cliff,
+      bobLockupParams.rate,
+      bobLockupParams.period,
+    ]);
+    expect(bobLockupParams.planId).to.not.equal("");
+
+    // check that it was locked
+    expect(
+      await (
+        await getLockup(bob)
+      ).read.lockedBalances([bob.account.address, weth.address])
+    ).to.eq(bobLockupParams.amount);
+
+    // get token id
+    bobLockupParams.tokenId = await (
+      await getLockup(bob)
+    ).read.tokenOfOwnerByIndex([bob.account.address, 0n]);
+    expect(bobLockupParams.tokenId).to.not.equal(0n);
+
+    // let's imagine that bob shares the token id with alice
+
+    // alice approves seaport to spend her usdc and bob approves it to spend his locked position
+    await (
+      await getUsdc(alice)
+    ).write.approve([seaportAddress, usdcTradeAmount]);
+    await (
+      await getLockup(bob)
+    ).write.approve([seaportAddress, bobLockupParams.tokenId]);
+
+    // construct order
+    const salt = generateSalt();
+    const encodedLockupParams = encodeAbiParameters(
+      [
+        {
+          name: "LockupVerificationParams",
+          type: "tuple",
+          components: [
+            { name: "offerAmount", type: "uint256" },
+            { name: "considerationAmount", type: "uint256" },
+          ],
+        },
+      ],
+      [
+        {
+          offerAmount: 0n,
+          considerationAmount: bobLockupParams.amount,
+        },
+      ]
+    );
+    const hashedLockupParams = keccak256(encodedLockupParams);
+    const baseOrderParameters = {
+      offerer: alice.account.address,
+      zone: lockupVerifier.address,
+
+      // this is what the trader is giving
+      offer: [
+        {
+          itemType: 1, // 1 == erc20
+          token: usdc.address,
+          identifierOrCriteria: 0n, // criteria not used for erc20s
+          startAmount: usdcTradeAmount,
+          endAmount: usdcTradeAmount,
+        },
+      ],
+
+      // what the trader expects to receive
+      consideration: [
+        {
+          itemType: 2, // ERC721
+          token: lockup.address,
+          identifierOrCriteria: bobLockupParams.tokenId,
+          startAmount: 1n,
+          endAmount: 1n,
+          recipient: alice.account.address,
+        },
+      ],
+      orderType: 2, // full restricted
+      startTime: timestamp,
+      endTime: timestamp + 86400n, // 24 hours from now
+      zoneHash: hashedLockupParams,
+      salt: salt,
+      conduitKey: zeroHash, // not using a conduit
+    };
+    const orderParameters = {
+      ...baseOrderParameters,
+      totalOriginalConsiderationItems: 1n,
+    };
+
+    // get contract info
+    const info = await seaport.read.information();
+    const version = info[0];
+    const name = await seaport.read.name();
+    const domainData = {
+      name: name,
+      version: version,
+
+      // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+      chainId: 31337,
+      verifyingContract: seaportAddress,
+    };
+    const counter = await seaport.read.getCounter([alice.account.address]);
+    const orderComponents = {
+      ...baseOrderParameters,
+      counter: counter,
+    };
+
+    // alice signs the order
+    const signature = await alice.signTypedData({
+      domain: domainData,
+      types: orderType,
+      primaryType: "OrderComponents",
+      message: orderComponents,
+    });
+
+    // construct advanced order
+    const advancedOrder = {
+      parameters: orderParameters,
+      numerator: 1n,
+      denominator: 1n,
+      signature: signature,
+      extraData: encodedLockupParams,
+    };
+
+    // bob receives the signed order and tries to fulfill it
+    await expect(
+      (
+        await getSeaport(bob)
+      ).write.fulfillAdvancedOrder([
+        advancedOrder,
+        [],
+        zeroHash,
+        bob.account.address,
+      ])
+    ).to.be.rejectedWith("LOCKUP_NOT_WHITELISTED");
   });
 });
