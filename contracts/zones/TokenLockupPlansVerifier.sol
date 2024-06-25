@@ -46,40 +46,40 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
             (LockupVerificationParams)
         );
 
-        // create time locks for each if specified
-        if (lockupParams.considerationAmount > 0) {
-            if (zoneParameters.consideration.length < 1) {
-                revert NO_CONSIDERATION();
-            }
-            ReceivedItem memory consideration = zoneParameters.consideration[0];
+        // check all offer and consideration items for lockups
+        // lockupParams.considerationAmounts and lockupParams.offerAmounts should be mapped 1:1 to items
+        // e.g. even if the item is an ERC20, fill in that index with an arbitrary value like 0
+        for (uint256 i = 0; i < zoneParameters.consideration.length; ++i) {
+            ReceivedItem memory consideration = zoneParameters.consideration[i];
 
-            if (consideration.itemType != ItemType.ERC721) {
-                revert CONSIDERATION_NOT_ERC721();
-            }
+            if (consideration.itemType == ItemType.ERC721) {
+                if (lockupParams.considerationAmounts.length < i || lockupParams.considerationAmounts[i] == 0) {
+                    revert CONSIDERATION_AMOUNT_NOT_SPECIFIED();
+                }
 
-            _checkLockup(
-                zoneParameters.offerer,
-                consideration.identifier,
-                lockupParams.considerationAmount,
-                ITokenLockupPlans(consideration.token)
-            );
+                _checkLockup(
+                    zoneParameters.offerer,
+                    consideration.identifier,
+                    lockupParams.considerationAmounts[i],
+                    ITokenLockupPlans(consideration.token)
+                );
+            }
         }
-        if (lockupParams.offerAmount > 0) {
-            if (zoneParameters.offer.length < 1) {
-                revert NO_OFFER();
-            }
-            SpentItem memory offer = zoneParameters.offer[0];
+        for (uint256 i = 0; i < zoneParameters.offer.length; ++i) {
+            SpentItem memory offer = zoneParameters.offer[i];
 
-            if (offer.itemType != ItemType.ERC721) {
-                revert OFFER_NOT_ERC721();
-            }
+            if (offer.itemType == ItemType.ERC721) {
+                if (lockupParams.offerAmounts.length < i || lockupParams.offerAmounts[i] == 0) {
+                    revert OFFER_AMOUNT_NOT_SPECIFIED();
+                }
 
-            _checkLockup(
-                zoneParameters.fulfiller,
-                offer.identifier,
-                lockupParams.offerAmount,
-                ITokenLockupPlans(offer.token)
-            );
+                _checkLockup(
+                    zoneParameters.fulfiller,
+                    offer.identifier,
+                    lockupParams.offerAmounts[i],
+                    ITokenLockupPlans(offer.token)
+                );
+            }
         }
 
         validOrderMagicValue = ZoneInterface.validateOrder.selector;
@@ -89,7 +89,9 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
      * @dev internal function to check lockup ownership and token amount
      *
      * @param owner the owner of the lockup
+     * @param tokenId the token id of the lockup erc721
      * @param amount the amount expected to be locked
+     * @param lockupContract the erc721 lockup contract
      */
     function _checkLockup(
         address owner,
