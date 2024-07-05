@@ -31,6 +31,11 @@ const config: HardhatUserConfig = {
       url: process.env.BASE_URL || "",
       accounts: [process.env.PRIVATE_KEY || ""],
     },
+    berachainTestnet: {
+      chainId: 80085,
+      url: process.env.BERACHAIN_TESTNET_URL || "",
+      accounts: [process.env.PRIVATE_KEY || ""],
+    },
   },
   etherscan: {
     apiKey: {
