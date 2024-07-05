@@ -18,10 +18,14 @@ const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 const seaportAddress = "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC";
 
 /**
- * @notice this example address is for sepolia
- * - change this when deploying to other chains
+ * @notice these example address are for sepolia
+ * - change these when deploying to other chains
  */
 const tokenLockupPlansAddress = "0xb49d0CD3D5290adb4aF1eBA7A6B90CdE8B9265ff";
+const whitelistedLockups = [
+  "0xb49d0CD3D5290adb4aF1eBA7A6B90CdE8B9265ff", // TokenLockupPlans
+  "0xB82b292C9e33154636fe8839fDb6d4081Da5c359", // VotingTokenLockupPlans
+];
 
 /**
  * @notice this is the address that controls server signatures
@@ -36,7 +40,7 @@ const main = async () => {
   // deploy RequireServerSignature.sol
   const requireServerSignatureZone = await hre.viem.deployContract(
     "RequireServerSignature",
-    [serverSignatureAddress, chainId]
+    [serverSignatureAddress, BigInt(chainId ?? 11155111)]
   );
   console.log("RequireServerSignature: ", requireServerSignatureZone.address);
 
@@ -111,7 +115,7 @@ const main = async () => {
   // deploy RestrictBySignatureV2.sol
   const restrictBySignatureV2Zone = await hre.viem.deployContract(
     "RestrictBySignatureV2",
-    [serverSignatureAddress, chainId]
+    [serverSignatureAddress, BigInt(chainId ?? 11155111)]
   );
   console.log("RestrictBySignatureV2: ", restrictBySignatureV2Zone.address);
 
@@ -120,6 +124,20 @@ const main = async () => {
   await hre.run("verify:verify", {
     address: restrictBySignatureV2Zone.address,
     constructorArguments: [serverSignatureAddress, chainId],
+  });
+
+  // deploy TokenLockupPlansVerifier.sol
+  const tokenLockupPlansVerifier = await hre.viem.deployContract(
+    "TokenLockupPlansVerifier",
+    [whitelistedLockups]
+  );
+  console.log("TokenLockupPlansVerifier: ", tokenLockupPlansVerifier.address);
+
+  // wait for deployment and verify
+  await delay(30000);
+  await hre.run("verify:verify", {
+    address: tokenLockupPlansVerifier.address,
+    constructorArguments: [whitelistedLockups],
   });
 };
 

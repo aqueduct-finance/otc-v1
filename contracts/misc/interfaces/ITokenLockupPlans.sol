@@ -23,4 +23,27 @@ interface ITokenLockupPlans {
     ) external returns (uint256 newPlanId);
 
     function redeemAllPlans() external;
+
+    function lockedBalances(
+        address holder,
+        address token
+    ) external view returns (uint256 lockedBalance);
+
+    function tokenOfOwnerByIndex(
+        address owner,
+        uint256 index
+    ) external view returns (uint256);
+
+    function approve(address to, uint256 tokenId) external;
+
+    function ownerOf(uint256 tokenId) external view returns (address);
+
+    function plans(uint256 planId) external view returns (
+        address token,
+        uint256 amount,
+        uint256 start,
+        uint256 cliff,
+        uint256 rate,
+        uint256 period
+    );
 }
