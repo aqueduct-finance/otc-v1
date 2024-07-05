@@ -9,6 +9,7 @@ interface IRequireServerSignature is ZoneInterface {
     error ONLY_OWNER();
     error DEADLINE_EXCEEDED();
     error INCORRECT_FULFILLER();
+    error INCORRECT_ORDER();
 
     function setOwner(address _owner) external;
 }

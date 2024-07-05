@@ -18,7 +18,7 @@ describe("RequireServerSignature Zone tests", function () {
 
         // set erin as the server owner
         const server = af.erin;
-        const requireServerSignatureZone = await hre.viem.deployContract('RequireServerSignature', [server.account.address, 31337]);
+        const requireServerSignatureZone = await hre.viem.deployContract('RequireServerSignature', [server.account.address, 31337n]);
         async function getRequireServerSignatureZone(client: typeof af.alice) {
             return await hre.viem.getContractAt(
                 "IRequireServerSignature",
@@ -152,7 +152,9 @@ describe("RequireServerSignature Zone tests", function () {
         });
 
         // server signs the order
+        const orderHash = await seaport.read.getOrderHash([orderComponents]);
         const authParams = {
+            orderHash: orderHash,
             fulfiller: bob.account.address,
             deadline: timestamp + 600n // 10 mins from now
         };
@@ -182,6 +184,7 @@ describe("RequireServerSignature Zone tests", function () {
                             name: 'authParams',
                             type: 'tuple',
                             components: [
+                                { name: 'orderHash', type: 'bytes32' },
                                 { name: 'fulfiller', type: 'address' },
                                 { name: 'deadline', type: 'uint256' },
                             ],
@@ -217,6 +220,7 @@ describe("RequireServerSignature Zone tests", function () {
             wethTradeAmount,
             advancedOrder,
             serverToken,
+            orderHash,
         }
     }
 
@@ -329,6 +333,7 @@ describe("RequireServerSignature Zone tests", function () {
                             name: 'authParams',
                             type: 'tuple',
                             components: [
+                                { name: 'orderHash', type: 'bytes32' },
                                 { name: 'fulfiller', type: 'address' },
                                 { name: 'deadline', type: 'uint256' },
                             ],
@@ -348,6 +353,65 @@ describe("RequireServerSignature Zone tests", function () {
                 [],
                 zeroHash,
                 charlie.account.address
+            ])
+        ).to.be.rejectedWith(
+            'INVALID_SERVER_SIGNATURE'
+        );
+    });
+
+    /*
+        Bob tries to take the token from one order and use it for another
+    */
+    it("invalid order", async function () {
+        // bob is stealing the token from this order
+        const {
+            bob,
+            getSeaport,
+            serverToken,
+            orderHash
+        } = await loadFixture(signatureValidationFixture);
+
+        // order that bob will try to fill
+        const {
+            advancedOrder,
+            orderHash: orderHash2
+        } = await signatureValidationFixture();
+
+        // order hashes shouldn't be the same
+        expect(orderHash).to.not.equal(orderHash2);
+
+        // manually change the orderHash
+        serverToken.authParams.orderHash = orderHash2;
+        const encodedServerToken = encodeAbiParameters(
+            [
+                {
+                    name: 'serverToken',
+                    type: 'tuple',
+                    components: [
+                        {
+                            name: 'authParams',
+                            type: 'tuple',
+                            components: [
+                                { name: 'orderHash', type: 'bytes32' },
+                                { name: 'fulfiller', type: 'address' },
+                                { name: 'deadline', type: 'uint256' },
+                            ],
+                        },
+                        { name: 'signature', type: 'bytes' },
+                    ],
+                }
+            ],
+            [serverToken]
+        );
+        advancedOrder.extraData = encodedServerToken;
+
+        // bob tries to sign the order
+        await expect(
+            (await getSeaport(bob)).write.fulfillAdvancedOrder([
+                advancedOrder,
+                [],
+                zeroHash,
+                bob.account.address
             ])
         ).to.be.rejectedWith(
             'INVALID_SERVER_SIGNATURE'
