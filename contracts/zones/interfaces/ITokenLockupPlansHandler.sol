@@ -12,6 +12,8 @@ interface ITokenLockupPlansHandler is ZoneInterface {
     error CALLER_NOT_SEAPORT();
     error END_LESS_THAN_CLIFF();
     error INVALID_RATE();
+    error INSUFFICIENT_PRE_BALANCE();
+    error INSUFFICIENT_POST_BALANCE();
 
     /**
      * @param start when the vesting plan starts, a unix timestamp
