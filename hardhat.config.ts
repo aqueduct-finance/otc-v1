@@ -36,6 +36,11 @@ const config: HardhatUserConfig = {
       url: process.env.BERACHAIN_TESTNET_URL || "",
       accounts: [process.env.PRIVATE_KEY || ""],
     },
+    arbitrum: {
+      chainId: 42161,
+      url: process.env.ARBITRUM_URL || "",
+      accounts: [process.env.PRIVATE_KEY || ""],
+    },
   },
   etherscan: {
     apiKey: {
@@ -43,6 +48,7 @@ const config: HardhatUserConfig = {
       sepolia: process.env.ETHERSCAN_API_KEY ?? "",
       polygon: process.env.POLYGONSCAN_API_KEY ?? "",
       base: process.env.BASESCAN_API_KEY ?? "",
+      arbitrumOne: process.env.ARBITRUM_API_KEY ?? "",
     },
   },
   solidity: "0.8.20",
