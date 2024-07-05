@@ -2375,6 +2375,7 @@ describe("TokenLockupPlansHandler tests", function () {
           hre.viem.deployContract("TokenLockupPlansHandler", [
             zeroAddress,
             seaport.address,
+            seaport.address,
           ])
         ).to.be.rejectedWith("Transaction reverted without a reason string");
       });
@@ -2386,6 +2387,20 @@ describe("TokenLockupPlansHandler tests", function () {
         await expect(
           hre.viem.deployContract("TokenLockupPlansHandler", [
             lockup.address,
+            zeroAddress,
+            lockup.address,
+          ])
+        ).to.be.rejectedWith("Transaction reverted without a reason string");
+      });
+
+      it("revert when provide zero address for zone aggregator", async function () {
+        const { lockup, seaport } = await loadFixture(fixture);
+
+        // try to deploy
+        await expect(
+          hre.viem.deployContract("TokenLockupPlansHandler", [
+            lockup.address,
+            seaport.address,
             zeroAddress,
           ])
         ).to.be.rejectedWith("Transaction reverted without a reason string");

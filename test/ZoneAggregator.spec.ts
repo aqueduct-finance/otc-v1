@@ -411,7 +411,9 @@ describe("ZoneAggregator Zone tests", function () {
     });
 
     // server signs the order
+    const orderHash = await seaport.read.getOrderHash([orderComponents]);
     const authParams = {
+      orderHash: orderHash,
       fulfiller: bob.account.address,
       deadline: timestamp + 600n, // 10 mins from now
     };
@@ -441,6 +443,7 @@ describe("ZoneAggregator Zone tests", function () {
               name: "authParams",
               type: "tuple",
               components: [
+                { name: 'orderHash', type: 'bytes32' },
                 { name: "fulfiller", type: "address" },
                 { name: "deadline", type: "uint256" },
               ],
