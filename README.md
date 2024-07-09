@@ -33,6 +33,33 @@ Seaport docs: [https://docs.opensea.io/docs/seaport](https://github.com/ProjectO
       - `cliff` is calculated as `createPlanParams.start + createPlanParams.cliffOffsetTime`
       - `rate` is calculated as `(amount * createPlanParams.period) / createPlanParams.endOffsetTime`
         - this is necessary because `amount` is dynamic (e.g. when the counterparty does a partial fill), and `rate` is dependent on `amount`
+       
+### TokenLockupPlansVerifier
+  - allows seaport users to trade Hedgey TokenLockupPlans, VotingTokenLockupPlans, and any other lockup contract that conforms to the same interface that we whitelist
+  - this addresses the problem in seaport where an order cannot define custom parameters for erc721s
+    - e.g. if I say I want to buy a lockup that has 1000 usdc, and the owner is able to retrieve some of the usdc right before the trade is settled, then seaport will allow this
+    - this custom zone contract allows the order to store specific lockup amounts that must be checked at the time of the trade
+  - use case example:
+    - refer to the use case for TokenLockupPlansHandler - let's say that Bob has received his 100 UNI lockup. He now wants to sell that position on the secondary market to Alice. Alice creates a trade to sell 5000 USDC for the lockup on OpenSea's seaport protocol, and she specifies this contract's address as the `zone`. To enforce the correct lockup amount, she will create a `LockupVerificationParams` struct, with the lockup amount at index 0 of the array for `considerationAmounts`, but leave `offerAmounts` an empty array. To be sure that seaport enforces these parameters, she encodes this struct, takes its hash, and supplies that value as the `zoneHash` in her seaport order. Alice signs the order and shares it with Bob offchain. When Bob goes to fill the order on seaport, he will provide the `LockupVerificationParams` struct as the `extraData` param. When Bob is ready to make the trade, he will call the `fulfillAdvancedOrder` function on the seaport contract.
+- Dependencies / External Contract Interactions:
+  - Seaport v1.5
+    - for security reasons, TokenLockupPlansVerifier is called post-settlement by seaport (after each user has already swapped their assets, and all checks within seaport have been met)
+  - TokenLockupPlans, VotingTokenLockupPlans
+    - TokenLockupPlans: https://github.com/hedgey-finance/Locked_VestingTokenPlans/blob/master/contracts/LockupPlans/TokenLockupPlans.sol
+    - VotingTokenLockupPlans: https://github.com/hedgey-finance/Locked_VestingTokenPlans/blob/master/contracts/LockupPlans/VotingTokenLockupPlans.sol
+    - both contracts conform to the same interface and are treated the same in our contract
+    - TokenLockupPlansVerifier iterates over every offer/consideration item, and performs the following checks if it is an erc721:
+        1. Check that it is a whitelisted lockup contract
+           - this is done as an extra safety measure so that users can't try to create a fake lockup contract to trick the buyer
+           - but, this has the caveat that an order cannot have another arbitrary erc721 if this zone is being used
+        2. Check the owner
+           - based on whether the item was an offer or consideration, check if the new owner is the buyer or seller respectively
+           - calls `lockup.ownerOf()`
+        3. Check the plan amount (amount of tokens locked up)
+           - gets plan amount: `(, uint256 planAmount, , , , ) = lockupContract.plans(tokenId);`
+           - checks that against the respective index of offerAmounts/considerationAmounts decoded from `extraData`
+        - If the item isn't an erc721, it checks that the respective amount is 0
+           - This is basically a way for the user to acknowledge that this item is in the order, so that they don't accidentally set the expected lockup amount for the wrong item
 
 ## Access Control / Permissions
 - RequireServerSignature
