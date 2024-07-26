@@ -2,7 +2,7 @@
 
 Contracts built on top of OpenSea's seaport protocol (version 1.5). They add extra features/restrictions to seaport orders.
 
-Seaport docs: [https://docs.opensea.io/docs/seaport](https://github.com/ProjectOpenSea/seaport/blob/main/docs/SeaportDocumentation.md)
+[Seaport v1.5 docs](https://github.com/ProjectOpenSea/seaport/tree/ab3b5cb6e10580ea979d63983e409e679935c702/docs)
 
 ## Lockups / Vesting
 ### TokenLockupPlansHandler
@@ -15,10 +15,10 @@ Seaport docs: [https://docs.opensea.io/docs/seaport](https://github.com/ProjectO
      - TokenLockupPlansHandler is designed to inherit both the security and functionality of seaport. E.g. if Bob chose to partially fill his order, seaport will pass that fill `amount` to TokenLockupPlansHandler, and it will still be able to vest the correct amount
 - Dependencies / External Contract Interactions:
   - Seaport v1.5
-    - https://github.com/ProjectOpenSea/seaport
+    - [docs](https://github.com/ProjectOpenSea/seaport/tree/ab3b5cb6e10580ea979d63983e409e679935c702)
     - all calls to TokenLockupPlansHandler must originate from seaport
     - for security reasons, TokenLockupPlansHandler is called post-settlement by seaport (after each user has already swapped their assets, and all checks within seaport have been met)
-    - for docs on seaport order creation and fulfillment, see: https://github.com/ProjectOpenSea/seaport/blob/main/docs/SeaportDocumentation.md#order
+    - for docs on seaport order creation and fulfillment, see [here](https://github.com/ProjectOpenSea/seaport/blob/ab3b5cb6e10580ea979d63983e409e679935c702/docs/SeaportDocumentation.md)
     - TokenLockupPlansHandler supports all types of order fulfillment by accessing the `amount` param on the first offer/consideration item (e.g. `zoneParameters.offer[0].amount`)
       - for example, if permitted, the user can do a partial fill by setting the `numerator` and `denominator` params when fulfilling through seaport, and TokenLockupPlansHandler will still lock the correct amount
   - TokenLockupPlans
