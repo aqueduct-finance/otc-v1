@@ -20,7 +20,15 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
     mapping(address => bool) public whitelistedLockupAddresses;
 
     constructor(address[] memory _whitelistedLockupAddresses) {
+        if (_whitelistedLockupAddresses.length == 0) {
+            revert NO_WHITELISTED_ADDRESSES();
+        }
+
         for (uint256 i = 0; i < _whitelistedLockupAddresses.length; i++) {
+            if (_whitelistedLockupAddresses[i] == address(0)) {
+                revert WHITELISTED_ZERO_ADDRESS();
+            }
+
             whitelistedLockupAddresses[_whitelistedLockupAddresses[i]] = true;
         }
     }

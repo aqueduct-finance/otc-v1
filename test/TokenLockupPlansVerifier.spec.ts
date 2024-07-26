@@ -6,7 +6,7 @@ import { expect } from "chai";
 import { parseUnits, encodeAbiParameters, keccak256 } from "viem";
 import hre from "hardhat";
 import orderType from "./utils/orderType";
-import { seaportAddress, zeroHash } from "./utils/constants";
+import { seaportAddress, zeroAddress, zeroHash } from "./utils/constants";
 import generateSalt from "./utils/generateSalt";
 import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
@@ -1617,7 +1617,7 @@ describe("TokenLockupPlansVerifier tests", function () {
     // deploy lockup verifier with empty whitelist
     const lockupVerifier = await hre.viem.deployContract(
       "TokenLockupPlansVerifier",
-      [[]]
+      [[usdc.address]] // just use some random address
     );
 
     // amounts
@@ -1787,5 +1787,17 @@ describe("TokenLockupPlansVerifier tests", function () {
         bob.account.address,
       ])
     ).to.be.rejectedWith("LOCKUP_NOT_WHITELISTED");
+  });
+
+  it("try to deploy with no whitelisted addresses", async function () {
+    await expect(
+      hre.viem.deployContract("TokenLockupPlansVerifier", [[]])
+    ).to.be.rejectedWith("NO_WHITELISTED_ADDRESSES");
+  });
+
+  it("try to deploy with whitelisted zero address", async function () {
+    await expect(
+      hre.viem.deployContract("TokenLockupPlansVerifier", [[zeroAddress]])
+    ).to.be.rejectedWith("WHITELISTED_ZERO_ADDRESS");
   });
 });

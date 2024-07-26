@@ -10,6 +10,8 @@ interface ITokenLockupPlansVerifier is ZoneInterface {
     error LOCKUP_NOT_WHITELISTED();
     error CONSIDERATION_AMOUNT_NOT_SPECIFIED();
     error OFFER_AMOUNT_NOT_SPECIFIED();
+    error NO_WHITELISTED_ADDRESSES();
+    error WHITELISTED_ZERO_ADDRESS();
 
     struct LockupVerificationParams {
         uint256[] offerAmounts;
