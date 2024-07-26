@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity ^0.8.20;
+pragma solidity 0.8.20;
 
 import {ZoneInterface} from "seaport-types/src/interfaces/ZoneInterface.sol";
 import {ZoneParameters, Schema} from "seaport-types/src/lib/ConsiderationStructs.sol";
@@ -20,7 +20,15 @@ contract TokenLockupPlansVerifier is ITokenLockupPlansVerifier {
     mapping(address => bool) public whitelistedLockupAddresses;
 
     constructor(address[] memory _whitelistedLockupAddresses) {
+        if (_whitelistedLockupAddresses.length == 0) {
+            revert NO_WHITELISTED_ADDRESSES();
+        }
+
         for (uint256 i = 0; i < _whitelistedLockupAddresses.length; i++) {
+            if (_whitelistedLockupAddresses[i] == address(0)) {
+                revert WHITELISTED_ZERO_ADDRESS();
+            }
+
             whitelistedLockupAddresses[_whitelistedLockupAddresses[i]] = true;
         }
     }
