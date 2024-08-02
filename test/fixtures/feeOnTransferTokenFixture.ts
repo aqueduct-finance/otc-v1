@@ -11,18 +11,22 @@ async function feeOnTransferTokenFixture() {
     ["FOTT", "FOTT"]
   );
   const feeOnTransferToken = await hre.viem.getContractAt(
-    "IERC20",
+    "contracts/tokens/interfaces/IERC20.sol:IERC20",
     _feeOnTransferToken.address
   );
   async function getFeeOnTransferToken(client: typeof alice) {
-    return await hre.viem.getContractAt("IERC20", _feeOnTransferToken.address, {
-      walletClient: client,
-    });
+    return await hre.viem.getContractAt(
+      "contracts/tokens/interfaces/IERC20.sol:IERC20",
+      _feeOnTransferToken.address,
+      {
+        walletClient: client,
+      }
+    );
   }
 
   // mint tokens to each account
   const aliceStartingFeeTokenBalance = parseUnits("1000", 6);
-  const mintAmount = (aliceStartingFeeTokenBalance * 100n / 99n) + 1n;
+  const mintAmount = (aliceStartingFeeTokenBalance * 100n) / 99n + 1n;
   await (
     await getFeeOnTransferToken(alice)
   ).write.mint([alice.account.address, mintAmount]);

@@ -139,6 +139,17 @@ const main = async () => {
     address: tokenLockupPlansVerifier.address,
     constructorArguments: [whitelistedLockups],
   });
+
+  // deploy OtcPool.sol
+  const otcPool = await hre.viem.deployContract("OtcPool", []);
+  console.log("OtcPool: ", otcPool.address);
+
+  // wait for deployment and verify
+  await delay(30000);
+  await hre.run("verify:verify", {
+    address: otcPool.address,
+    constructorArguments: [],
+  });
 };
 
 const runMain = async () => {

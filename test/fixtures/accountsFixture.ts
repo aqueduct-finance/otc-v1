@@ -10,16 +10,16 @@ async function accountsFixture() {
     const _usdc = await hre.viem.deployContract('ERC20', ['USDC', 'USDC']);
     const _weth = await hre.viem.deployContract('ERC20', ['WETH', 'WETH']);
     const usdc = await hre.viem.getContractAt(
-      "IERC20",
+      "contracts/tokens/interfaces/IERC20.sol:IERC20",
       _usdc.address
     );
     const weth = await hre.viem.getContractAt(
-      "IERC20",
+      "contracts/tokens/interfaces/IERC20.sol:IERC20",
       _weth.address
     );
     async function getUsdc(client: typeof alice) {
       return await hre.viem.getContractAt(
-        "IERC20",
+        "contracts/tokens/interfaces/IERC20.sol:IERC20",
         _usdc.address,
         {
           walletClient: client
@@ -28,7 +28,7 @@ async function accountsFixture() {
     }
     async function getWeth(client: typeof alice) {
       return await hre.viem.getContractAt(
-        "IERC20",
+        "contracts/tokens/interfaces/IERC20.sol:IERC20",
         _weth.address,
         {
           walletClient: client
