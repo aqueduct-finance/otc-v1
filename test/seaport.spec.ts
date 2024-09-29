@@ -591,7 +591,7 @@ describe("Seaport ERC20 tests", function () {
       - Bob creates a new order to pay a fee to Frank, and matches the orders
       - note that Frank does not need prior funds
     */
-    it.only("multi-hop trade", async function () {
+    it("multi-hop trade", async function () {
       const {
         alice,
         bob,
