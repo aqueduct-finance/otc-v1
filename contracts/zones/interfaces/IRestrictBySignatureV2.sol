@@ -12,6 +12,7 @@ interface IRestrictBySignatureV2 is ZoneInterface {
     error DEADLINE_EXCEEDED();
     error END_TIME_EXCEEDED();
     error BEFORE_START_TIME();
+    error CALLER_NOT_SEAPORT();
 
     /*
         Server token params:

@@ -42,11 +42,24 @@ contract RestrictBySignatureV3 is IRestrictBySignatureV2 {
     bytes32 internal immutable _VERSION_HASH;
     uint256 internal immutable _CHAIN_ID;
     bytes32 internal immutable _DOMAIN_SEPARATOR;
+    address public immutable seaport;
+    address public immutable zoneAggregator;
 
     // state
     address private owner;
 
-    constructor(address _owner, uint256 _chainId) {
+    constructor(
+        address _owner,
+        uint256 _chainId,
+        address _seaport,
+        address _zoneAggregator
+    ) {
+        require(_seaport != address(0));
+        require(_zoneAggregator != address(0));
+
+        seaport = _seaport;
+        zoneAggregator = _zoneAggregator;
+
         owner = _owner;
         _CHAIN_ID = _chainId;
 
@@ -109,6 +122,11 @@ contract RestrictBySignatureV3 is IRestrictBySignatureV2 {
     function validateOrder(
         ZoneParameters calldata zoneParameters
     ) external returns (bytes4 validOrderMagicValue) {
+        // only allowed to be called by seaport
+        if (msg.sender != seaport && msg.sender != zoneAggregator) {
+            revert CALLER_NOT_SEAPORT();
+        }
+        
         RestrictBySignatureV2ExtraData memory decodedExtraData = abi.decode(
             zoneParameters.extraData,
             (RestrictBySignatureV2ExtraData)

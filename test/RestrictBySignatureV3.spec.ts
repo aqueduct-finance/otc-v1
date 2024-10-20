@@ -13,7 +13,7 @@ import {
 } from "viem";
 import hre from "hardhat";
 import orderType from "./utils/orderType";
-import { seaportAddress, zeroHash } from "./utils/constants";
+import { seaportAddress, zeroAddress, zeroHash } from "./utils/constants";
 import generateSalt from "./utils/generateSalt";
 import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
@@ -43,7 +43,7 @@ describe("RestrictBySignatureV3 Zone tests", function () {
     const server = af.erin;
     const restrictToAddressesZone = await hre.viem.deployContract(
       "RestrictBySignatureV3",
-      [server.account.address, 31337n]
+      [server.account.address, 31337n, sf.seaport.address, sf.seaport.address]
     );
 
     return {
@@ -423,6 +423,29 @@ describe("RestrictBySignatureV3 Zone tests", function () {
       ).to.be.rejectedWith(
         "VM Exception while processing transaction: reverted with an unrecognized custom error"
       );
+    });
+
+    it("only seaport allowed to call validateOrder", async function () {
+      const { bob, restrictToAddressesZone } = await loadFixture(fixture);
+
+      // fake zone params for testing, these don't matter
+      const fakeZoneParams = {
+        orderHash: zeroHash,
+        fulfiller: bob.account.address,
+        offerer: zeroAddress,
+        offer: [],
+        consideration: [],
+        extraData: zeroHash,
+        orderHashes: [],
+        startTime: 0n,
+        endTime: 0n,
+        zoneHash: zeroHash,
+      };
+
+      // try calling validateOrder directly
+      await expect(
+        restrictToAddressesZone.write.validateOrder([fakeZoneParams])
+      ).to.be.rejectedWith("CALLER_NOT_SEAPORT");
     });
 
     /*

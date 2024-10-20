@@ -115,7 +115,12 @@ const main = async () => {
   // deploy RestrictBySignatureV3.sol
   const restrictBySignatureV3Zone = await hre.viem.deployContract(
     "RestrictBySignatureV3",
-    [serverSignatureAddress, BigInt(chainId ?? 11155111)]
+    [
+      serverSignatureAddress,
+      BigInt(chainId ?? 11155111),
+      seaportAddress,
+      zoneAggregator.address,
+    ]
   );
   console.log("RestrictBySignatureV3: ", restrictBySignatureV3Zone.address);
 
@@ -123,7 +128,12 @@ const main = async () => {
   await delay(30000);
   await hre.run("verify:verify", {
     address: restrictBySignatureV3Zone.address,
-    constructorArguments: [serverSignatureAddress, chainId],
+    constructorArguments: [
+      serverSignatureAddress,
+      chainId,
+      seaportAddress,
+      zoneAggregator.address,
+    ],
   });
 
   // deploy TokenLockupPlansVerifier.sol
