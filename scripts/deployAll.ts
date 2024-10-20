@@ -112,17 +112,17 @@ const main = async () => {
     ],
   });
 
-  // deploy RestrictBySignatureV2.sol
-  const restrictBySignatureV2Zone = await hre.viem.deployContract(
-    "RestrictBySignatureV2",
+  // deploy RestrictBySignatureV3.sol
+  const restrictBySignatureV3Zone = await hre.viem.deployContract(
+    "RestrictBySignatureV3",
     [serverSignatureAddress, BigInt(chainId ?? 11155111)]
   );
-  console.log("RestrictBySignatureV2: ", restrictBySignatureV2Zone.address);
+  console.log("RestrictBySignatureV3: ", restrictBySignatureV3Zone.address);
 
   // wait for deployment and verify
   await delay(30000);
   await hre.run("verify:verify", {
-    address: restrictBySignatureV2Zone.address,
+    address: restrictBySignatureV3Zone.address,
     constructorArguments: [serverSignatureAddress, chainId],
   });
 

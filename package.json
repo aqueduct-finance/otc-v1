@@ -10,7 +10,9 @@
     "hardhat": "^2.19.1"
   },
   "dependencies": {
+    "@safe-global/safe-contracts": "^1.4.1-2",
     "dotenv": "^16.3.1",
+    "ethers": "^6.13.4",
     "seaport-types": "^0.0.1"
   }
 }

@@ -1,21 +1,28 @@
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { expect } from "chai";
-import { parseUnits } from "viem";
+import { parseUnits, encodeFunctionData, hashTypedData } from "viem";
 import orderType from "./utils/orderType";
 import { seaportAddress, zeroAddress, zeroHash } from "./utils/constants";
 import generateSalt from "./utils/generateSalt";
 import getBlockTimestamp from "./utils/getBlockTimestamp";
 import seaportFixture from "./fixtures/seaportFixture";
 import accountsFixture from "./fixtures/accountsFixture";
+import safeFixture from "./fixtures/safeFixture";
+import {
+  buildSafeTransaction,
+  executeTx,
+  SafeSignature,
+  safeSignTypedData,
+  signMessageAndValidate,
+} from "./utils/safeHelpers";
+import { ethers } from "ethers";
 
 describe("Seaport ERC20 tests", function () {
   async function fixture() {
-    const sf = await seaportFixture();
-    const af = await accountsFixture();
-
     return {
-      ...sf,
-      ...af,
+      ...(await seaportFixture()),
+      ...(await accountsFixture()),
+      ...(await safeFixture()),
     };
   }
 
@@ -797,6 +804,161 @@ describe("Seaport ERC20 tests", function () {
       expect(await usdc.read.balanceOf([frank.account.address])).to.eq(
         usdcTradeAmount / 10n
       );
+    });
+
+    /*
+      - basic order like first test
+      - except we use erc1271 signer
+      - NOTE: using safe for testing
+    */
+    it("erc1271 signer <-> EOA", async function () {
+      const {
+        alice,
+        bob,
+        seaport,
+        usdc,
+        weth,
+        getSeaport,
+        getUsdc,
+        getWeth,
+        aliceStartingUsdcBalance,
+        startingWethBalance,
+        aliceSafe,
+      } = await loadFixture(fixture);
+
+      // alice sends all her usdc to her safe
+      await (
+        await getUsdc(alice)
+      ).write.transfer([aliceSafe.address, aliceStartingUsdcBalance]);
+
+      // amounts
+      const timestamp = await getBlockTimestamp();
+      const usdcTradeAmount = parseUnits("1000", 6);
+      const wethTradeamount = parseUnits("1", 18);
+
+      // aliceSafe approves seaport contract
+      const approveCalldata = encodeFunctionData({
+        abi: usdc.abi,
+        functionName: "approve",
+        args: [seaportAddress, usdcTradeAmount],
+      });
+      const approveTx = buildSafeTransaction({
+        to: usdc.address,
+        data: approveCalldata,
+        safeTxGas: 1000000n,
+        nonce: await aliceSafe.read.nonce(),
+      });
+      const threshold = 1n;
+      const sigs: SafeSignature[] = await Promise.all(
+        [alice].slice(0, Number(threshold)).map(async (signer) => {
+          return await safeSignTypedData(signer, aliceSafe.address, approveTx);
+        })
+      );
+      await executeTx(aliceSafe, approveTx, sigs);
+
+      // check aliceSafe's approval
+      expect(
+        await usdc.read.allowance([aliceSafe.address, seaportAddress])
+      ).to.eq(usdcTradeAmount);
+
+      // bob approves seaport contract
+      await (
+        await getWeth(bob)
+      ).write.approve([seaportAddress, wethTradeamount]);
+
+      // construct order
+      const salt = generateSalt();
+      const baseOrderParameters = {
+        offerer: aliceSafe.address,
+        zone: zeroAddress,
+        offer: [
+          {
+            itemType: 1,
+            token: usdc.address,
+            identifierOrCriteria: 0n,
+            startAmount: usdcTradeAmount,
+            endAmount: usdcTradeAmount,
+          },
+        ],
+        consideration: [
+          {
+            itemType: 1,
+            token: weth.address,
+            identifierOrCriteria: 0n,
+            startAmount: wethTradeamount,
+            endAmount: wethTradeamount,
+            recipient: aliceSafe.address,
+          },
+        ],
+        orderType: 0,
+        startTime: timestamp,
+        endTime: timestamp + 86400n,
+        zoneHash: zeroHash,
+        salt: salt,
+        conduitKey: zeroHash,
+      };
+      const orderParameters = {
+        ...baseOrderParameters,
+        totalOriginalConsiderationItems: 1n,
+      };
+
+      // get contract info
+      const info = await seaport.read.information();
+      const version = info[0];
+      const name = await seaport.read.name();
+      const domainData = {
+        name: name,
+        version: version,
+
+        // although we are forking eth mainnet, hardhat uses this chainId instead of the actual chainId (in this case, 1)
+        chainId: 31337,
+        verifyingContract: seaportAddress,
+      };
+      const counter = await seaport.read.getCounter([aliceSafe.address]);
+      const orderComponents = {
+        ...baseOrderParameters,
+        counter: counter,
+      };
+
+      // aliceSafe signs the order
+      const dataHash = hashTypedData({
+        domain: domainData,
+        types: orderType,
+        primaryType: "OrderComponents",
+        message: orderComponents,
+      });
+      const signature = await signMessageAndValidate(
+        [alice],
+        dataHash,
+        aliceSafe.address
+      );
+
+      // check for expected starting balances
+      expect(await usdc.read.balanceOf([aliceSafe.address])).to.eq(
+        aliceStartingUsdcBalance
+      );
+      expect(await weth.read.balanceOf([aliceSafe.address])).to.eq(0n);
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(
+        startingWethBalance
+      );
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(0n);
+
+      // bob receives the signed order and fulfills it
+      const order = {
+        parameters: orderParameters,
+        signature: signature,
+      };
+      await (await getSeaport(bob)).write.fulfillOrder([order, zeroHash]);
+
+      // check that the swap was correct
+      expect(await weth.read.balanceOf([aliceSafe.address])).to.eq(
+        wethTradeamount
+      );
+      expect(await usdc.read.balanceOf([aliceSafe.address])).to.eq(0n);
+      expect(await usdc.read.balanceOf([bob.account.address])).to.eq(
+        usdcTradeAmount
+      );
+      expect(await weth.read.balanceOf([bob.account.address])).to.eq(0n);
     });
   });
 });
