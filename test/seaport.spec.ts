@@ -914,7 +914,7 @@ describe("Seaport ERC20 tests", function () {
         chainId: 31337,
         verifyingContract: seaportAddress,
       };
-      const counter = await seaport.read.getCounter([alice.account.address]);
+      const counter = await seaport.read.getCounter([aliceSafe.address]);
       const orderComponents = {
         ...baseOrderParameters,
         counter: counter,

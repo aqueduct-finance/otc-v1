@@ -226,19 +226,9 @@ export const signMessageAndValidate = async (
   );
 
   const signature = buildSignatureBytes(signatures);
-  /*
-  const { result } = await (
-    await hre.viem.getPublicClient()
-  ).simulateContract({
-    address: validator.address,
-    abi: validator.abi,
-    // @ts-ignore
-    functionName: "isValidSignature",
-    args: [dataHash, signature],
-  });
-  */
 
-  //expect(result).to.be.eq("0x1626ba7e");
+  // will throw error if invalid
+  await validator.read.isValidSignature([dataHash, signature]);
 
   return signature;
 };
