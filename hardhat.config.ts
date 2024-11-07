@@ -41,6 +41,11 @@ const config: HardhatUserConfig = {
       url: process.env.ARBITRUM_URL || "",
       accounts: [process.env.PRIVATE_KEY || ""],
     },
+    bsc: {
+      chainId: 56,
+      url: process.env.BSC_URL || "",
+      accounts: [process.env.PRIVATE_KEY || ""],
+    },
   },
   etherscan: {
     apiKey: {
@@ -50,6 +55,7 @@ const config: HardhatUserConfig = {
       polygon: process.env.POLYGONSCAN_API_KEY ?? "",
       base: process.env.BASESCAN_API_KEY ?? "",
       arbitrumOne: process.env.ARBITRUM_API_KEY ?? "",
+      bsc: process.env.BSC_API_KEY ?? "",
     },
   },
   solidity: {
