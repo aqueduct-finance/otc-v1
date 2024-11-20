@@ -136,6 +136,30 @@ const main = async () => {
     ],
   });
 
+  // deploy RestrictBySignatureV4.sol
+  const restrictBySignatureV4Zone = await hre.viem.deployContract(
+    "RestrictBySignatureV4",
+    [
+      serverSignatureAddress,
+      BigInt(chainId ?? 11155111),
+      seaportAddress,
+      zoneAggregator.address,
+    ]
+  );
+  console.log("RestrictBySignatureV4: ", restrictBySignatureV4Zone.address);
+
+  // wait for deployment and verify
+  await delay(30000);
+  await hre.run("verify:verify", {
+    address: restrictBySignatureV4Zone.address,
+    constructorArguments: [
+      serverSignatureAddress,
+      chainId,
+      seaportAddress,
+      zoneAggregator.address,
+    ],
+  });
+
   // deploy TokenLockupPlansVerifier.sol
   const tokenLockupPlansVerifier = await hre.viem.deployContract(
     "TokenLockupPlansVerifier",
